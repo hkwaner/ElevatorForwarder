@@ -25,8 +25,8 @@ public class ElevatorCommand implements Serializable {
         command.data0 = data0;
         command.data1 = data1;
         command.data2 = data2;
-
-        command.crc = HexUtils.getCRC(new byte[]{command.elevatorAddress, command.data0, command.data1, command.data2});
+        byte[] bytes = {command.elevatorAddress, command.data0, command.data1, command.data2};
+        command.crc = HexUtils.getCRC(bytes);
         return command;
     }
 
@@ -42,5 +42,12 @@ public class ElevatorCommand implements Serializable {
                 HexUtils.byteToHexString(data1) + " " +
                 HexUtils.byteToHexString(data2) + " " +
                 HexUtils.byteToHexString(crc);
+    }
+
+
+    public static void main(String[] args) {
+        byte floorByte = (byte) (3 & 0xFF);
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x11, (byte) 0x00);
+        System.out.println("setSelectFloor 发送指令 command:{}"+ command);
     }
 }

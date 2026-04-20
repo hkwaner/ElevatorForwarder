@@ -7,9 +7,14 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.bytes.ByteArrayEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.handler.timeout.IdleStateHandler;
 import org.example.demo2.Config;
+import org.example.demo2.LogicHandler;
 import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,16 +63,20 @@ public class ElevatorConnector {
         if (!runFlag) return;
 
         Bootstrap bootstrap = new Bootstrap();
+
         bootstrap.group(workerGroup)
                 .channel(NioSocketChannel.class)
+                .option(ChannelOption.TCP_NODELAY, true)
                 .option(ChannelOption.SO_KEEPALIVE, true)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
                 .handler(new ChannelInitializer<io.netty.channel.socket.SocketChannel>() {
                     @Override
                     protected void initChannel(io.netty.channel.socket.SocketChannel ch) {
                         ch.pipeline()
-//                                .addLast(new LoggingHandler(LogLevel.INFO))
-                                .addLast(new ElevatorMessageHandler());
+                                .addLast(new LoggingHandler(LogLevel.INFO))
+                                .addLast(new OccupyHandler())
+                                .addLast(new ElevatorMessageHandler())
+                                .addLast(new ByteArrayEncoder());
                     }
                 });
 
@@ -108,6 +117,7 @@ public class ElevatorConnector {
     public boolean setOccupyElevatorUser(boolean occupy) {
         if (!isConnected()) return false;
         ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, occupy ? (byte) 0x11 : (byte) 0x01, (byte) 0x00);
+        log.info("setOccupyElevatorUser 发送指令 command:{}", command);
         channel.writeAndFlush(command);
         return true;
     }
@@ -116,6 +126,7 @@ public class ElevatorConnector {
         if (!isConnected()) return false;
         byte floorByte = (byte) (floor & 0xFF);
         ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x11, (byte) 0x00);
+        log.info("setSelectFloor 发送指令 command:{}", command);
         channel.writeAndFlush(command);
         return true;
     }
@@ -188,6 +199,31 @@ public class ElevatorConnector {
             log.info("[电梯] 连接断开");
             reconnect();
             super.channelInactive(ctx);
+        }
+    }
+
+    /**
+     * 维护 占用用户状态 如果持续5秒钟超时没有写操作 则发送一次当前独占电梯的信息
+     */
+    private class OccupyHandler extends IdleStateHandler {
+        public OccupyHandler() {
+            // 直接在构造函数设置时间：5秒无写操作触发。5秒一次
+            super(0, 5, 0, TimeUnit.SECONDS);
+        }
+
+        @Override
+        protected void channelIdle(ChannelHandlerContext ctx, IdleStateEvent evt) {
+            if (evt.state() == IdleState.WRITER_IDLE) {
+                // 直接在这里写发送逻辑
+                if (ctx.channel() == null || !ctx.channel().isActive()) return;
+                String[] currentOccupyElevatorUser = LogicHandler.getInstance().getCurrentOccupyElevatorUser();
+                log.info("测试");
+                if (currentOccupyElevatorUser != null) {
+                    ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x11, (byte) 0x00);
+                    log.info("连续5秒没有写操作,发送独占,保持独占信息");
+                    ctx.writeAndFlush(command);
+                }
+            }
         }
     }
 }

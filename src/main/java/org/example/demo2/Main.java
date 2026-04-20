@@ -13,7 +13,7 @@ public class Main {
 
     public static void main(String[] args) {
         MainServer server = new MainServer();
-        log.info("服务启动>>>");
+        log.info("服务启动>>> tag1");
         server.start();
         log.info("服务启动<<<");
     }

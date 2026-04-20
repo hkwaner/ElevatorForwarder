@@ -104,7 +104,8 @@ public class HexUtils {
         //A0 01 00 00
         //A0 05 00 00 3F
         //A0 04 00 00 54
-        byte[] data = {(byte) 0xA0, 0x04, 0x00, 0x00};
+//        byte[] data = {(byte) 0xA0, 0x04, 0x00, 0x00};
+        byte[] data = {(byte) 0xA0, (byte)0x03, (byte)0x11, (byte)0x00};
         byte result = getCRC(data);
         System.out.println("checkedCRC:" + byteToHexString(result));
     }

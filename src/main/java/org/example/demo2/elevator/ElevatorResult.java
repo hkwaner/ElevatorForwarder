@@ -15,14 +15,9 @@ public class ElevatorResult implements Serializable {
 
     private static SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA);
 
-    private byte elevatorAddress;       // 设备标识
-    private byte data0;                 // 消息类型
-    private byte data1;                 // 轿厢 是否在平层,停靠楼层,上行,才行,运动中
-    private byte data2;                 // 电梯状态
-    private byte data3;                 // 保留
-    private byte crc;                   // CRC校验
+    private byte[] originalData;        // [0]设备标识 [1]data0 轿厢楼层信息 [2]data1 电梯状态 [3]data2 机器人独占地址 [4]data3 保留 [5]CRC校验
 
-    private long receiveTimeNano;       //接收到消息时的时间戳(纳秒时间戳)
+    private transient long receiveTimeNano;       //接收到消息时的时间戳(纳秒时间戳)
     private long receiveTime;           //接收到消息的时间戳(毫秒)
     //接续获取到的信息
 
@@ -34,13 +29,13 @@ public class ElevatorResult implements Serializable {
     private boolean isMoving;           // 电梯运动中
 
     //data1
-    private boolean isElevatorNormal;   // 电梯状态是否正常
+    private String status;   // 电梯状态是否正常
 
     //data2
-    private byte occupiedTag;           // 当前独占的设备地址码
-    private boolean isOccupiedError;    // 独占异常
+    private transient boolean isOccupiedError;    // 独占异常
 
-    private String occupiedUser;        // 当前独占的用户
+    private String occupiedUser;        // 当前独占的用户id
+    private String occupiedUserName;    // 当前独占的用户名称
 
     private ElevatorResult() {
     }
@@ -57,30 +52,28 @@ public class ElevatorResult implements Serializable {
         ElevatorResult msg = new ElevatorResult();
         msg.receiveTimeNano = System.nanoTime();
         msg.receiveTime = System.currentTimeMillis();
-        msg.elevatorAddress = data[0];
-        msg.data0 = data[1];
-        msg.data1 = data[2];
-        msg.data2 = data[3];
-        msg.data3 = data[4];
-        msg.crc = data[5];
+        msg.originalData = data;
 
         //解析data0
-        msg.isLeveling = (msg.data0 & STATUS_FLOOR_MASK) != 0;          // 解析是否在平层
-        int floorValue = msg.data0 & STATUS_FLOOR_MASK;                 // 解析楼层
-        msg.floor = floorValue > 0 ? floorValue : 0;                    // 0表示不在平层
-        msg.isMovingUp = (msg.data0 & STATUS_MOVING_UP) != 0;           // 解析上行状态
-        msg.isMovingDown = (msg.data0 & STATUS_MOVING_DOWN) != 0;       // 解析下行状态
-        msg.isMoving = (msg.data0 & STATUS_IN_MOTION) != 0;             // 解析运动状态
+        msg.isLeveling = (msg.originalData[1] & STATUS_FLOOR_MASK) != 0;          // 解析是否在平层
+        int floorValue = msg.originalData[1] & STATUS_FLOOR_MASK;                 // 解析楼层
+        msg.floor = floorValue > 0 ? floorValue : 0;                              // 0表示不在平层
+        msg.isMovingUp = (msg.originalData[1] & STATUS_MOVING_UP) != 0;           // 解析上行状态
+        msg.isMovingDown = (msg.originalData[1] & STATUS_MOVING_DOWN) != 0;       // 解析下行状态
+        msg.isMoving = (msg.originalData[1] & STATUS_IN_MOTION) != 0;             // 解析运动状态
 
         //解析data1
-        msg.isElevatorNormal = msg.data1 == STATUS_ELEVATOR_NORMAL;    // 解析电梯状态是否正常
+        msg.status = msg.originalData[2] == STATUS_ELEVATOR_NORMAL ? "正常" : HexUtils.byteToHexString(msg.originalData[2]);    // 解析电梯状态是否正常
 
         //解析data2
-        msg.isOccupiedError = (msg.data2 & STATUS_OCCUPIED_ERROR) != 0;  // 解析是否独占异常
-        msg.occupiedTag = msg.data2;
+        msg.isOccupiedError = (msg.originalData[3] & STATUS_OCCUPIED_ERROR) != 0;  // 解析是否独占异常
+        if (msg.isOccupiedError) msg.status = "独占异常";
 
-        msg.occupiedUser = LogicHandler.getInstance().getCurrentOccupyElevatorUser();
-
+        String[] currentOccupyElevatorUser = LogicHandler.getInstance().getCurrentOccupyElevatorUser();
+        if (currentOccupyElevatorUser != null) {
+            msg.occupiedUser = currentOccupyElevatorUser[0];
+            msg.occupiedUserName = currentOccupyElevatorUser[1];
+        }
         //data3 不用
 
         return msg;
@@ -96,16 +89,12 @@ public class ElevatorResult implements Serializable {
         return isMoving || isMovingUp || isMovingDown;//不知道会不会出现 比如 电梯不在运动中 但是 有电梯上行 所以保险点当三个都为false才表示电梯不在运动中
     }
 
-    public boolean isElevatorNormal() {
-        return isElevatorNormal;
+    public String getStatus() {
+        return status;
     }
 
     public boolean isOccupiedError() {
         return isOccupiedError;
-    }
-
-    public byte getOccupiedTag() {
-        return occupiedTag;
     }
 
     public String getOccupiedUser() {
@@ -120,38 +109,20 @@ public class ElevatorResult implements Serializable {
         return receiveTime;
     }
 
-
-    public byte getData0() {
-        return data0;
-    }
-
-    public byte getData1() {
-        return data1;
-    }
-
-    public byte getData2() {
-        return data2;
-    }
-
-    public byte getData3() {
-        return data3;
+    public byte[] getOriginalData() {
+        return originalData;
     }
 
     @Override
     public String toString() {
-        return "设备地址:" + HexUtils.byteToHexString(elevatorAddress) +
+        return "原始数据:" + HexUtils.bytesToHexString(originalData) +
                 ",在平层:" + isLeveling +
                 ",楼层:" + floor +
                 ",上行中:" + isMovingUp +
                 ",下行中:" + isMovingDown +
                 ",运动中:" + isMoving +
-                ",状态正常:" + isElevatorNormal +
-                ",独占信息:" + HexUtils.byteToHexString(occupiedTag) +
-                ",独占异常:" + isOccupiedError +
+                ",状态:" + status +
                 ",当前独占用户:" + occupiedUser +
-                ",原始数据:" + HexUtils.byteToHexString(elevatorAddress) + " " + HexUtils.byteToHexString(data0) + " " +
-                HexUtils.byteToHexString(data1) + " " + HexUtils.byteToHexString(data2) + " " +
-                HexUtils.byteToHexString(data3) + " " + HexUtils.byteToHexString(crc) + " " +
                 ",时间:" + simpleDateFormat.format(receiveTime);
     }
 

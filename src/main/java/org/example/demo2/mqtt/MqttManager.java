@@ -119,41 +119,8 @@ public class MqttManager {
         msg.setAction(MqttConstants.ACTION_ELEVATOR_BASE_INFO);
         String json = JsonUtils.getGson().toJson(elevatorResult, ElevatorResult.class);
         msg.setValue(json);
-        /*
-          示例
-          {
-              "id": 1927837202,
-              "timeStamp": 1776409217094,
-              "source": "elevator_proxy",
-              "target": "subscribers",
-              "type": "ELEVATOR_BROADCAST_INFO",
-              "action": "ELEVATOR_BASE_INFO",
-              "value": "{\"elevatorAddress\":-96,\"data0\":1,\"data1\":0,\"data2\":0,\"data3\":10,\"crc\":-45,\"receiveTime\":2085752423466800,\"isLeveling\":true,\"floor\":1,\"isMovingUp\":false,\"isMovingDown\":false,\"isMoving\":false,\"isElevatorNormal\":true,\"occupiedTag\":0,\"isOccupiedError\":false,\"occupiedUser\":null}",
-              "originalType": null,
-              "originalAction": null
-          }
 
-          value 中json
-                      {
-                        "elevatorAddress": -96,
-                        "data0": 1,
-                        "data1": 0,
-                        "data2": 0,
-                        "data3": 10,
-                        "crc": -45,
-                        "receiveTime": 2085752423466800,
-                        "isLeveling": true,
-                        "floor": 1,
-                        "isMovingUp": false,
-                        "isMovingDown": false,
-                        "isMoving": false,
-                        "isElevatorNormal": true,
-                        "occupiedTag": 0,
-                        "isOccupiedError": false,
-                        "occupiedUser": null
-                       }
-         */
-
+        //示例参考readme.md
 
         MqttMessage message = new MqttMessage();
         String msgJson = JsonUtils.getGson().toJson(msg, MqttMsg.class);
@@ -167,12 +134,13 @@ public class MqttManager {
         }
     }
 
-    public void sendResult(MqttMsg originalMsg, boolean result) {
+    public void sendResult(MqttMsg originalMsg, boolean success, String value) {
         MqttMsg msg = new MqttMsg();
         msg.setSource(Config.MQTT_CLIENT_ID);
         msg.setTarget(originalMsg.getSource());
         msg.setType(MqttConstants.TYPE_RESULT);
-        msg.setAction(result ? MqttConstants.ACTION_RESULT_SUCCESS : MqttConstants.ACTION_RESULT_FAIL);
+        msg.setAction(success ? MqttConstants.ACTION_RESULT_SUCCESS : MqttConstants.ACTION_RESULT_FAIL);
+        msg.setValue(value);
 
         msg.setOriginalType(originalMsg.getType());
         msg.setOriginalAction(originalMsg.getAction());
@@ -189,9 +157,7 @@ public class MqttManager {
         }
     }
 
-    public void notifyRobotEnterOrExitElevator(MqttMsg originalMsg) {
-        String robotId = String.valueOf(originalMsg.getValue());
-
+    public void forwarderToRobot(MqttMsg originalMsg, String robotId) {
         MqttMsg msg = new MqttMsg();
         msg.setSource(Config.MQTT_CLIENT_ID);
         msg.setTarget(robotId);

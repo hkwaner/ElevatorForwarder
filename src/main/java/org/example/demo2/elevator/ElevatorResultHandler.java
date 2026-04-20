@@ -4,6 +4,7 @@ import org.example.demo2.mqtt.MqttManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -31,10 +32,12 @@ public class ElevatorResultHandler extends Thread {
     private boolean checkResultDataDiff(ElevatorResult result1, ElevatorResult result2) {
         //todo 多个电梯的场景下 根据设备地址区分判断????
         if (result1 == null || result2 == null) return false;
-        return result1.getData0() != result2.getData0() ||
-                result1.getData1() != result2.getData1() ||
-                result1.getData2() != result2.getData2() ||
-                result1.getData3() != result2.getData3();
+
+        byte[] originalData1 = result1.getOriginalData();
+        byte[] originalData2 = result2.getOriginalData();
+        if (originalData1 == null || originalData2 == null || originalData1.length == 0 || originalData2.length == 0)
+            return false;
+        return !Arrays.equals(originalData1, originalData2);
     }
 
     @Override

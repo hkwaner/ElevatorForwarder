@@ -4,6 +4,9 @@ import org.example.demo2.LogicHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 控制选层的时候判断下机器人是否在安全的点。电梯内或候梯点 进出电梯或者去候梯点的时候 不要控制电梯上下楼
+ */
 public class MqttMsgHandler implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(MqttMsgHandler.class);
     private static final MqttManager mqttManager = MqttManager.getInstance();
@@ -23,41 +26,50 @@ public class MqttMsgHandler implements Runnable {
         String source = mqttMsg.getSource();
         if (source == null || source.isEmpty()) return;
 
-        switch (mqttMsg.getType()) {
-            case MqttConstants.TYPE_ELEVATOR_CONTROL:
-                switch (mqttMsg.getAction()) {
-                    case MqttConstants.ACTION_OCCUPY_ELEVATOR://独占电梯
-                        mqttManager.sendResult(mqttMsg, logicHandler.occupyElevator(source));
-                        break;
-                    case MqttConstants.ACTION_ENTER_ELEVATOR://进入电梯
-                        boolean flag1 = logicHandler.notifyRobotEnterElevator(mqttMsg);//todo jiao 检查如果有问题 不能给机器人发消息 记得 回复下原因???
-                        if (!flag1) mqttManager.sendResult(mqttMsg, false);
-                        break;
-                    case MqttConstants.ACTION_SELECT_FLOORS://选层
-                        Object value = mqttMsg.getValue();
-                        int intValue = 0;
-                        if (value instanceof Number) intValue = ((Number) value).intValue();
-//                        else if (value instanceof String) intValue = Integer.parseInt((String) value);
-                        else {
-                            log.info("value 不是数字类型: {}", value);
-                            mqttManager.sendResult(mqttMsg, false);
-                            break;
-                        }
-                        mqttManager.sendResult(mqttMsg, logicHandler.selectFloor(source, intValue));
-                        break;
-                    case MqttConstants.ACTION_EXIT_ELEVATOR://出去电梯
-                        boolean flag2 = logicHandler.notifyRobotExitElevator(mqttMsg);
-                        if (!flag2) mqttManager.sendResult(mqttMsg, false);//只有在转发失败的时候才回复失败。转发成功后由机器人处理
-                        break;
-                    case MqttConstants.ACTION_RELEASE_ELEVATOR://取消独占
-                        mqttManager.sendResult(mqttMsg, logicHandler.releaseElevator(source));
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            default:
-                break;
+        if (mqttMsg.getType().equals(MqttConstants.TYPE_ELEVATOR_CONTROL)) {
+            switch (mqttMsg.getAction()) {
+                case MqttConstants.ACTION_OCCUPY_ELEVATOR://独占电梯
+                    log.info("独占电梯 >>>");
+                    String result0 = logicHandler.occupyElevator(mqttMsg);
+                    mqttManager.sendResult(mqttMsg, result0.contains("成功"), result0);
+                    log.info("独占电梯 <<<");
+                    break;
+                case MqttConstants.ACTION_ENTER_ELEVATOR://通知机器人进入电梯
+                    log.info("通知机器人进入电梯 >>>");
+                    String result1 = logicHandler.notifyRobotEnterElevator(mqttMsg);
+                    if (!"成功".equals(result1))
+                        mqttManager.sendResult(mqttMsg, false, result1);//失败是返回失败原因 转发给机器人之后就不管了
+                    log.info("通知机器人进入电梯 <<<");
+                    break;
+                case MqttConstants.ACTION_SELECT_FLOORS://选层
+                    log.info("选层 >>>");
+                    String result2 = logicHandler.selectFloor(mqttMsg);
+                    mqttManager.sendResult(mqttMsg, result2.contains("成功"), result2);
+                    log.info("选层 <<<");
+                    break;
+                case MqttConstants.ACTION_EXIT_ELEVATOR://通知机器人出去电梯
+                    log.info("通知机器人出去电梯 >>>");
+                    String result3 = logicHandler.notifyRobotExitElevator(mqttMsg);
+                    if (!"成功".equals(result3))
+                        mqttManager.sendResult(mqttMsg, false, result3);//失败是返回失败原因 转发给机器人之后就不管了
+                    log.info("通知机器人出去电梯 <<<");
+                    break;
+                case MqttConstants.ACTION_TO_WAITING_POINT://通知机器人去候梯点
+                    log.info("通知机器人去候梯点 >>>");
+                    String result4 = logicHandler.notifyRobotToWaitingPoint(mqttMsg);
+                    if (!"成功".equals(result4))
+                        mqttManager.sendResult(mqttMsg, false, result4);//失败是返回失败原因 转发给机器人之后就不管了
+                    log.info("通知机器人去候梯点 <<<");
+                    break;
+                case MqttConstants.ACTION_RELEASE_ELEVATOR://取消独占
+                    log.info("取消独占 >>>");
+                    String result5 = logicHandler.releaseElevator(mqttMsg);
+                    mqttManager.sendResult(mqttMsg, result5.contains("成功"), result5);
+                    log.info("取消独占 <<<");
+                    break;
+                default:
+                    break;
+            }
         }
     }
 }
