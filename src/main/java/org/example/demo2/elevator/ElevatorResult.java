@@ -33,6 +33,7 @@ public class ElevatorResult implements Serializable {
 
     //data2
     private transient boolean isOccupiedError;    // 独占异常
+    private transient boolean isOccupiedSuccess;     // 是否完成独占
 
     private String occupiedUser;        // 当前独占的用户id
     private String occupiedUserName;    // 当前独占的用户名称
@@ -66,8 +67,9 @@ public class ElevatorResult implements Serializable {
         msg.status = msg.originalData[2] == STATUS_ELEVATOR_NORMAL ? "正常" : HexUtils.byteToHexString(msg.originalData[2]);    // 解析电梯状态是否正常
 
         //解析data2
-        msg.isOccupiedError = (msg.originalData[3] & STATUS_OCCUPIED_ERROR) != 0;  // 解析是否独占异常
-        if (msg.isOccupiedError) msg.status = "独占异常";
+        msg.isOccupiedError = msg.originalData[3] == STATUS_OCCUPIED_ERROR;  // 解析是否独占异常
+        if (msg.isOccupiedError && "正常".equals(msg.status)) msg.status = "独占异常"; //优先显示data1 是否正常 之后再显示独占是否异常
+        msg.isOccupiedSuccess = !msg.isOccupiedError && (msg.originalData[3] & 0x80) != 0;
 
         String[] currentOccupyElevatorUser = LogicHandler.getInstance().getCurrentOccupyElevatorUser();
         if (currentOccupyElevatorUser != null) {
@@ -113,6 +115,10 @@ public class ElevatorResult implements Serializable {
         return originalData;
     }
 
+    public boolean isOccupiedSuccess() {
+        return isOccupiedSuccess;
+    }
+
     @Override
     public String toString() {
         return "原始数据:" + HexUtils.bytesToHexString(originalData) +
@@ -122,7 +128,9 @@ public class ElevatorResult implements Serializable {
                 ",下行中:" + isMovingDown +
                 ",运动中:" + isMoving +
                 ",状态:" + status +
+                ",独占是否完成:" + isOccupiedSuccess +
                 ",当前独占用户:" + occupiedUser +
+                ",当前独占用户名:" + occupiedUserName +
                 ",时间:" + simpleDateFormat.format(receiveTime);
     }
 

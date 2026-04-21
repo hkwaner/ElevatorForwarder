@@ -74,6 +74,10 @@ public class ElevatorResultHandler extends Thread {
         }
     }
 
+    public ElevatorResult getLastResult(){
+        return lastResult;
+    }
+
     public void stopRun() {
         runFlag = false;
     }

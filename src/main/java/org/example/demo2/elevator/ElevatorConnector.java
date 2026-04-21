@@ -133,7 +133,7 @@ public class ElevatorConnector {
         return true;
     }
 
-    public ElevatorResult getLastElevatorResult() {
+    protected ElevatorResult getLastElevatorResult() {
         return lastElevatorResult;
     }
 

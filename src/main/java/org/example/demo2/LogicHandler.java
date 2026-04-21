@@ -4,6 +4,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.example.demo2.elevator.ElevatorConnector;
+import org.example.demo2.elevator.ElevatorResult;
+import org.example.demo2.elevator.ElevatorResultHandler;
 import org.example.demo2.mqtt.MqttManager;
 import org.example.demo2.mqtt.MqttMsg;
 import org.example.demo2.mqtt.MqttMsgHandler;
@@ -140,6 +142,9 @@ public class LogicHandler {
         //todo 选层时通过机器人。判断机器人是否在电梯内或候梯点
 
         if (!Config.ELEVATOR_FLOORS.contains(targetFloor)) return "选层失败,目标楼层不可达";
+
+        ElevatorResult lastResult = ElevatorResultHandler.getInstance().getLastResult();
+        if (!lastResult.isOccupiedSuccess()) return "选层失败,独占操作还未完成确认.请稍后重试";
         synchronized (occupyStatusLock) {
             String[] userInfo = currentOccupyUserInfo;
             if (userInfo == null) return "选层失败,请先占用电梯";
@@ -156,7 +161,8 @@ public class LogicHandler {
      */
     public String notifyRobotEnterElevator(MqttMsg originalMsg) {
         return "暂不支持此操作";
-
+//        ElevatorResult lastResult = ElevatorResultHandler.getInstance().getLastResult();
+//        if (!lastResult.isOccupiedSuccess()) return "选层失败,独占操作还未完成确认,请稍后重试";
 //        String userId = null;
 //        String robotId = null;
 //        try {
@@ -188,6 +194,8 @@ public class LogicHandler {
      */
     public String notifyRobotExitElevator(MqttMsg originalMsg) {
         return "暂不支持此操作";
+//        ElevatorResult lastResult = ElevatorResultHandler.getInstance().getLastResult();
+//        if (!lastResult.isOccupiedSuccess()) return "选层失败,独占操作还未完成确认,请稍后重试";
 //        String userId = null;
 //        String robotId = null;
 //        try {
@@ -219,6 +227,8 @@ public class LogicHandler {
      */
     public String notifyRobotToWaitingPoint(MqttMsg originalMsg) {
         return "暂不支持此操作";
+//        ElevatorResult lastResult = ElevatorResultHandler.getInstance().getLastResult();
+//        if (!lastResult.isOccupiedSuccess()) return "选层失败,独占操作还未完成确认,请稍后重试";
 //        String userId = null;
 //        String userName = null;
 //        String robotId = null;
