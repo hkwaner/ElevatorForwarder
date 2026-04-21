@@ -2,12 +2,13 @@ package org.example.demo2.elevator;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.bytes.ByteArrayEncoder;
+import io.netty.handler.codec.MessageToByteEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleState;
@@ -73,10 +74,9 @@ public class ElevatorConnector {
                     @Override
                     protected void initChannel(io.netty.channel.socket.SocketChannel ch) {
                         ch.pipeline()
-                                .addLast(new LoggingHandler(LogLevel.INFO))
+//                                .addLast(new LoggingHandler(LogLevel.INFO))
                                 .addLast(new OccupyHandler())
-                                .addLast(new ElevatorMessageHandler())
-                                .addLast(new ByteArrayEncoder());
+                                .addLast(new ElevatorMessageHandler());
                     }
                 });
 
@@ -116,18 +116,20 @@ public class ElevatorConnector {
 
     public boolean setOccupyElevatorUser(boolean occupy) {
         if (!isConnected()) return false;
-        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, occupy ? (byte) 0x11 : (byte) 0x01, (byte) 0x00);
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, occupy ? (byte) 0x12 : (byte) 0x02, (byte) 0x00);
         log.info("setOccupyElevatorUser 发送指令 command:{}", command);
-        channel.writeAndFlush(command);
+        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
+        channel.writeAndFlush(buffer);
         return true;
     }
 
     public boolean setSelectFloor(int floor) {
         if (!isConnected()) return false;
         byte floorByte = (byte) (floor & 0xFF);
-        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x11, (byte) 0x00);
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x12, (byte) 0x00);
         log.info("setSelectFloor 发送指令 command:{}", command);
-        channel.writeAndFlush(command);
+        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
+        channel.writeAndFlush(buffer);
         return true;
     }
 
@@ -217,11 +219,11 @@ public class ElevatorConnector {
                 // 直接在这里写发送逻辑
                 if (ctx.channel() == null || !ctx.channel().isActive()) return;
                 String[] currentOccupyElevatorUser = LogicHandler.getInstance().getCurrentOccupyElevatorUser();
-                log.info("测试");
                 if (currentOccupyElevatorUser != null) {
-                    ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x11, (byte) 0x00);
-                    log.info("连续5秒没有写操作,发送独占,保持独占信息");
-                    ctx.writeAndFlush(command);
+                    ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x12, (byte) 0x00);
+                    log.info("连续5秒没有写操作,发送独占,保持独占信息 {}",command);
+                    ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
+                    ctx.writeAndFlush(buffer);
                 }
             }
         }

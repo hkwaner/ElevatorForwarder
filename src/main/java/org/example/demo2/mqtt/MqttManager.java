@@ -66,8 +66,8 @@ public class MqttManager {
      * 订阅机器人主题
      */
     private void subscribeTopics() {
-        String[] topics = new String[]{"topic-insbot"};
-        int[] pos = new int[]{QOS_0};
+        String[] topics = new String[]{"topic-insbot","topic-elevator"};
+        int[] pos = new int[]{QOS_0,QOS_0};
 
         if (!isConnect()) {
             log.info("[MQTT] subscribeTopics 失败,未连接");

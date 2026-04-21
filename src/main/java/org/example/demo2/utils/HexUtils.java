@@ -101,12 +101,25 @@ public class HexUtils {
     public static void main(String[] args) {
         //测试crc方法
         //A0 01 00 00 94
-        //A0 01 00 00
-        //A0 05 00 00 3F
+        //A0 02 00 00 29
+        //A0 03 00 00 42
         //A0 04 00 00 54
+        //A0 05 00 00 3F
+
+        //A0 05 11 00 7D
+        //A0 04 11 00 16
+        //A0 03 11 00 00
+        //A0 02 11 00 6B
+        //A0 01 11 00 D6
 //        byte[] data = {(byte) 0xA0, 0x04, 0x00, 0x00};
-        byte[] data = {(byte) 0xA0, (byte)0x03, (byte)0x11, (byte)0x00};
+        byte[] data = {(byte) 0xA0, (byte)0x01, (byte)0x00, (byte)0x00};
         byte result = getCRC(data);
         System.out.println("checkedCRC:" + byteToHexString(result));
+
+        byte a = (byte) 0x82;
+
+        System.out.println("test1:"+(byteToHexString((byte) (a & 0x7f))));
+        System.out.println("test2:"+(byteToHexString((byte) (a & 0x80))));
+        System.out.println("test2:"+(byteToHexString((byte) (0x00 & 0x80))));
     }
 }

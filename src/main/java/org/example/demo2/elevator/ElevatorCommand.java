@@ -8,7 +8,7 @@ import java.io.Serializable;
  * 控制电梯的消息
  */
 public class ElevatorCommand implements Serializable {
-    private byte elevatorAddress = (byte) 0xA0;   //目标电梯设备地址    /todo 暂时是固定的 多电梯场景兼容
+    private final byte elevatorAddress = (byte) 0xA0;   //目标电梯设备地址    /todo 暂时是固定的 多电梯场景兼容
     private byte data0;             // 选层
     private byte data1;             // 独占
     private byte data2;             // 控制门指令暂时没用
@@ -47,7 +47,7 @@ public class ElevatorCommand implements Serializable {
 
     public static void main(String[] args) {
         byte floorByte = (byte) (3 & 0xFF);
-        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x11, (byte) 0x00);
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x12, (byte) 0x00);
         System.out.println("setSelectFloor 发送指令 command:{}"+ command);
     }
 }
