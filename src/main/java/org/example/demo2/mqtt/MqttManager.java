@@ -121,17 +121,7 @@ public class MqttManager {
         msg.setValue(json);
 
         //示例参考readme.md
-
-        MqttMessage message = new MqttMessage();
-        String msgJson = JsonUtils.getGson().toJson(msg, MqttMsg.class);
-        message.setPayload(msgJson.getBytes());
-        message.setQos(QOS_0);
-        log.info("broadcastElevatorResult send message:{}", msgJson);
-        try {
-            mqttClient.publish("topic-insbot", message);
-        } catch (MqttException e) {
-            log.info("[MQTT] publishElevatorResult msgJson:{} error:", msgJson, e);
-        }
+        sendMessage(msg);
     }
 
     public void sendResult(MqttMsg originalMsg, boolean success, String value) {
@@ -145,17 +135,9 @@ public class MqttManager {
         msg.setOriginalType(originalMsg.getType());
         msg.setOriginalAction(originalMsg.getAction());
 
-        MqttMessage message = new MqttMessage();
-        String msgJson = JsonUtils.getGson().toJson(msg, MqttMsg.class);
-        message.setPayload(msgJson.getBytes());
-        message.setQos(QOS_0);
-        log.info("sendResult send message:{}", msgJson);
-        try {
-            mqttClient.publish("topic-insbot", message);
-        } catch (MqttException e) {
-            log.info("[MQTT] publishResult msgJson:{} error:", msgJson, e);
-        }
+        sendMessage(msg);
     }
+
 
     public void forwarderToRobot(MqttMsg originalMsg, String robotId) {
         MqttMsg msg = new MqttMsg();
@@ -166,15 +148,19 @@ public class MqttManager {
         String valueJson = "{ \"originalSource\":\"" + originalMsg.getSource() + "\"}";
         msg.setValue(valueJson);
 
+        sendMessage(msg);
+    }
+
+    public void sendMessage(MqttMsg msg) {
         MqttMessage message = new MqttMessage();
         String msgJson = JsonUtils.getGson().toJson(msg, MqttMsg.class);
         message.setPayload(msgJson.getBytes());
         message.setQos(QOS_0);
-        log.info("notifyRobotEnterOrExitElevator send message:{}", msgJson);
+        log.info("[MQTT] sendMessage:{}", msgJson);
         try {
             mqttClient.publish("topic-insbot", message);
         } catch (MqttException e) {
-            log.info("[MQTT] notifyRobotEnterOrExitElevator msgJson:{} error:", msgJson, e);
+            log.info("[MQTT] sendMessage msgJson:{} error:", msgJson, e);
         }
     }
 

@@ -74,8 +74,18 @@ public class ElevatorResultHandler extends Thread {
         }
     }
 
-    public ElevatorResult getLastResult(){
+    public ElevatorResult getLastResult() {
         return lastResult;
+    }
+
+    /**
+     * 检查占用电梯操作是否完成
+     */
+    public boolean checkOccupiedSuccess(long userOccupyTime) {
+        if (lastResult == null) return false;
+        long receiveTimeNano1 = lastResult.getReceiveTimeNano();//最近一次广播的电梯消息的时间
+        boolean timeFlag = (userOccupyTime - receiveTimeNano1 > TimeUnit.MILLISECONDS.toNanos(500));
+        return timeFlag && lastResult.isOccupiedSuccess();
     }
 
     public void stopRun() {
