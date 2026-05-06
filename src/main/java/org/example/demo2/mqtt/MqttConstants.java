@@ -17,6 +17,11 @@ public class MqttConstants {
     public static final String ACTION_RESULT_FAIL = "RESULT_FAIL";
 
 
+    public static final String TYPE_ROBOT_TO_ELEVATOR_REQUEST = "ROBOT_TO_ELEVATOR_REQUEST";//机器人给电梯服务发送请求
+    public static final String ACTION_ROBOT_ENTER_ELEVATOR = "ROBOT_ENTER_ELEVATOR";//机器人告诉电梯服务 机器人想要进电梯
+    public static final String ACTION_ROBOT_IN_ELEVATOR = "ROBOT_IN_ELEVATOR";//机器人告诉电梯服务 机器人已经在电梯内了
+    public static final String ACTION_ROBOT_TO_WAITING_POINT = "ROBOT_TO_WAITING_POINT";//机器人告诉电梯服务 机器人想要去往候梯点
+    public static final String ACTION_ROBOT_IN_WAITING_POINT = "ROBOT_IN_WAITING_POINT";//机器人告诉电梯服务 机器人已经到达候梯点
 
 
 

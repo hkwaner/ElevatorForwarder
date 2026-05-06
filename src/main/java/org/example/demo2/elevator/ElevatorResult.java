@@ -2,6 +2,7 @@ package org.example.demo2.elevator;
 
 import org.example.demo2.LogicHandler;
 import org.example.demo2.MainServer;
+import org.example.demo2.bean.OccupyUserInfo;
 import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,9 @@ public class ElevatorResult implements Serializable {
     private String occupiedUser;        // 当前独占的用户id
     private String occupiedUserName;    // 当前独占的用户名称
 
+    private String usedRobotId;
+    private int robotUsedStatus = LogicHandler.USED_STATUS_NONE;
+
     private ElevatorResult() {
     }
 
@@ -61,7 +65,7 @@ public class ElevatorResult implements Serializable {
         msg.floor = floorValue > 0 ? floorValue : 0;                              // 0表示不在平层
         msg.isMovingUp = (msg.originalData[1] & STATUS_MOVING_UP) != 0;           // 解析上行状态
         msg.isMovingDown = (msg.originalData[1] & STATUS_MOVING_DOWN) != 0;       // 解析下行状态
-        msg.isMoving = (msg.originalData[1] & STATUS_IN_MOTION) != 0;             // 解析运动状态
+        msg.isMoving = (msg.originalData[1] & STATUS_IN_MOTION) != 0 || msg.isMovingUp || msg.isMovingDown;             // 解析运动状态
 
         //解析data1
         msg.status = msg.originalData[2] == STATUS_ELEVATOR_NORMAL ? "正常" : HexUtils.byteToHexString(msg.originalData[2]);    // 解析电梯状态是否正常
@@ -71,10 +75,10 @@ public class ElevatorResult implements Serializable {
         if (msg.isOccupiedError && "正常".equals(msg.status)) msg.status = "独占异常"; //优先显示data1 是否正常 之后再显示独占是否异常
         msg.isOccupiedSuccess = !msg.isOccupiedError && (msg.originalData[3] & 0x80) != 0;
 
-        String[] currentOccupyElevatorUser = LogicHandler.getInstance().getCurrentOccupyElevatorUser();
-        if (currentOccupyElevatorUser != null) {
-            msg.occupiedUser = currentOccupyElevatorUser[0];
-            msg.occupiedUserName = currentOccupyElevatorUser[1];
+        OccupyUserInfo occupyUserInfo = LogicHandler.getInstance().getOccupyUserInfo();
+        if (occupyUserInfo != null) {
+            msg.occupiedUser = occupyUserInfo.getUserId();
+            msg.occupiedUserName = occupyUserInfo.getUserName();
         }
         //data3 不用
 

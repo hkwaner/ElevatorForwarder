@@ -16,6 +16,7 @@ import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.example.demo2.Config;
 import org.example.demo2.LogicHandler;
+import org.example.demo2.bean.OccupyUserInfo;
 import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -218,8 +219,8 @@ public class ElevatorConnector {
             if (evt.state() == IdleState.WRITER_IDLE) {
                 // 直接在这里写发送逻辑
                 if (ctx.channel() == null || !ctx.channel().isActive()) return;
-                String[] currentOccupyElevatorUser = LogicHandler.getInstance().getCurrentOccupyElevatorUser();
-                if (currentOccupyElevatorUser != null) {
+                OccupyUserInfo occupyUserInfo = LogicHandler.getInstance().getOccupyUserInfo();
+                if (occupyUserInfo != null) {
                     ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x12, (byte) 0x00);
                     log.info("连续5秒没有写操作,发送独占,保持独占信息 {}",command);
                     ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
