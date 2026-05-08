@@ -85,16 +85,17 @@ public class LogicHandler {
     }
 
     private Result checkOccupyElevator(String userId, String userName) {
-        if (userId == null) return new Result(false, "占用电梯指令执行失败,mqtt消息解析失败");
+        if (userId == null) return new Result(false, "占用电梯指令执行失败!\nmqtt消息解析失败");
         synchronized (occupyStatusLock) {
             if (occupyUserInfo == null) {
                 //setOccupyElevatorUser 为true之后 会在没有给电梯写消息的时候自动给电梯发送独占 防止超1分没给电梯发送独占相关消息 电梯自动超时取消掉。逻辑在OccupyHandler.class
                 if (ElevatorConnector.getInstance().setOccupyElevatorUser(true)) {
                     occupyUserInfo = new OccupyUserInfo(userId, userName, System.nanoTime());
-                    return new Result(true, "占用电梯指令执行成功");
-                } else return new Result(false, "占用电梯指令执行失败,电梯未连接.请检查网络或稍后重试");
+                    return new Result(true, "占用电梯指令执行成功!");
+                } else return new Result(false, "占用电梯指令执行失败!\n电梯未连接.请检查网络或稍后重试");
             } else if (occupyUserInfo.getUserId().equals(userId)) return new Result(true, "占用电梯指令执行成功");
-            else return new Result(false, "占用电梯指令执行失败,当前已占用电梯用户:" + occupyUserInfo.getUserName());
+            else
+                return new Result(false, "占用电梯指令执行失败!\n电梯正在被:" + occupyUserInfo.getUserName() + "占用,如需控制请联系" + occupyUserInfo.getUserName() + "取消占用");
         }
     }
 
@@ -116,11 +117,11 @@ public class LogicHandler {
     }
 
     private Result checkReleaseElevator(String userId) {
-        if (userId == null) return new Result(false, "取消占用指令执行失败,mqtt消息解析失败");
+        if (userId == null) return new Result(false, "取消占用指令执行失败!\nmqtt消息解析失败");
         synchronized (occupyStatusLock) {
-            if (occupyUserInfo == null) return new Result(true, "取消占用指令执行失败,电梯当前没有被占用");
+            if (occupyUserInfo == null) return new Result(true, "取消占用指令执行失败!\n电梯当前没有被占用");
             else if (!occupyUserInfo.getUserId().equals(userId))
-                return new Result(false, "取消占用指令执行失败,当前已占用电梯的用户:" + occupyUserInfo.getUserName());
+                return new Result(false, "取消占用指令执行失败!\n电梯正在被:" + occupyUserInfo.getUserName() + "占用,如需控制请联系" + occupyUserInfo.getUserName() + "取消占用");
             else {//是自己占用的情况下 检查是否有机器人在电梯内或进出电梯中
                 synchronized (robotUseLock) {
                     if (usedStatus != USED_STATUS_NONE) {
@@ -128,10 +129,10 @@ public class LogicHandler {
                         if (usedStatus == USED_STATUS_ROBOT_INSIDE) s = "电梯内";
                         else if (usedStatus == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
                         else if (usedStatus == USED_STATUS_ROBOT_TO_WAITING_POINT) s = "去候梯点";
-                        return new Result(false, "取消占用指令执行失败,机器人" + usedRobotName + "正在" + s);
+                        return new Result(false, "取消占用指令执行失败!\n机器人" + usedRobotName + "正在" + s);
                     } else {
                         occupyUserInfo = null;
-                        return new Result(false, "取消占用指令执行成功");
+                        return new Result(false, "取消占用指令执行成功!");
                     }
                 }
             }
@@ -217,25 +218,25 @@ public class LogicHandler {
 
 
     private Result checkSelectFloor(String userId, int targetFloor) {
-        if (userId == null || targetFloor == -9999) return new Result(false, "选层失败,mqtt消息解析失败");
-        if (!Config.ELEVATOR_FLOORS.contains(targetFloor)) return new Result(false, "选层失败,目标楼层不可达");
+        if (userId == null || targetFloor == -9999) return new Result(false, "电梯选层失败!\nmqtt消息解析失败");
+        if (!Config.ELEVATOR_FLOORS.contains(targetFloor)) return new Result(false, "电梯选层失败\n目标楼层不可达");
         synchronized (occupyStatusLock) {
-            if (occupyUserInfo == null) return new Result(false, "选层失败,请先占用电梯");
+            if (occupyUserInfo == null) return new Result(false, "电梯选层失败!\n请先占用电梯");
             else if (!occupyUserInfo.getUserId().equals(userId))
-                return new Result(false, "选层失败,当前已占用电梯用户:" + occupyUserInfo.getUserName());
+                return new Result(false, "电梯选层失败!\n电梯正在被:" + occupyUserInfo.getUserName() + "占用,如需控制请联系" + occupyUserInfo.getUserName() + "取消占用");
             else {
                 boolean isOccupiedSuccess = ElevatorResultHandler.getInstance().checkOccupiedSuccess(occupyUserInfo.getOccupyTime());
-                if (!isOccupiedSuccess) return new Result(false, "选层失败,独占操作还未完成确认.请稍后重试");
+                if (!isOccupiedSuccess) return new Result(false, "电梯选层失败!\n独占操作还未完成确认.请稍后重试");
                 synchronized (robotUseLock) {
                     if (usedStatus != USED_STATUS_NONE && usedStatus != USED_STATUS_ROBOT_INSIDE) {
                         String s = "";
                         if (usedStatus == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
                         else if (usedStatus == USED_STATUS_ROBOT_TO_WAITING_POINT) s = "去候梯点";
-                        return new Result(false, "选层失败,机器人" + usedRobotName + "正在" + s);
+                        return new Result(false, "电梯选层失败!\n机器人" + usedRobotName + "正在" + s);
                     } else {
                         boolean b = ElevatorConnector.getInstance().setSelectFloor(targetFloor);
-                        if (b) return new Result(true, "选层" + targetFloor + "F,执行成功");
-                        else return new Result(false, "选层失败,电梯未连接.请检查网络或稍后重试");
+                        if (b) return new Result(true, "电梯选层" + targetFloor + "F,执行成功");
+                        else return new Result(false, "电梯选层失败!\n电梯未连接.请检查网络或稍后重试");
                     }
                 }
             }
