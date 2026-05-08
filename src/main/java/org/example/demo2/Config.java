@@ -19,10 +19,7 @@ public class Config {
 //    public static final String MQTT_URL = "tcp://192.168.8.3:1883";//干燥一期 广拓能源
     public static final String MQTT_URL = "tcp://192.168.8.4:1883";//干燥二期 高新材料
     public static final String MQTT_CLIENT_ID = "elevator_proxy";
-    public static final String MQTT_TOPIC = "topic-insbot";
-    public static final int MQTT_CONNECTION_TIMEOUT = 10;//连接超时时间
-    public static final int MQTT_KEEP_ALIVE_INTERVAL = 5;//心跳间隔
-    public static final int MQTT_MAX_RECONNECT_DELAY = 16000;//重连最大时间
-    public static final int MQTT_MAX_INFLIGHT = 50;//最大等待消息数 (qos=1发送未回复的消息)
+    public static final String MQTT_TOPIC1 = "topic-insbot";
+
 
 }

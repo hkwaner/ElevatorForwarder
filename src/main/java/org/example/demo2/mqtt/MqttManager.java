@@ -25,6 +25,8 @@ public class MqttManager {
     // QOS 0 消息最多交付一次，可能会丢失
     // QOS 1 消息至少交付一次，保证消息会被收到，但可能出现重复
     private static final int QOS_0 = 0;
+    private static final String[] topics = new String[]{Config.MQTT_TOPIC1/*,"topic-elevator"*/};
+    private static final int[] pos = new int[]{QOS_0/*,QOS_0*/};
     private final HashMapQueue<Long, MqttMsg> mCachedReceiveMessages = new HashMapQueue<>(100);
 
     private MqttClient mqttClient;
@@ -66,9 +68,6 @@ public class MqttManager {
      * 订阅机器人主题
      */
     private void subscribeTopics() {
-        String[] topics = new String[]{"topic-insbot","topic-elevator"};
-        int[] pos = new int[]{QOS_0,QOS_0};
-
         if (!isConnect()) {
             log.info("[MQTT] subscribeTopics 失败,未连接");
             return;
@@ -158,7 +157,7 @@ public class MqttManager {
         message.setQos(QOS_0);
         log.info("[MQTT] sendMessage:{}", msgJson);
         try {
-            mqttClient.publish("topic-insbot", message);
+            mqttClient.publish(Config.MQTT_TOPIC1, message);
         } catch (MqttException e) {
             log.info("[MQTT] sendMessage msgJson:{} error:", msgJson, e);
         }
