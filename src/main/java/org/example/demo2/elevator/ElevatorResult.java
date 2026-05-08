@@ -68,7 +68,14 @@ public class ElevatorResult implements Serializable {
         msg.isMoving = (msg.originalData[1] & STATUS_IN_MOTION) != 0 || msg.isMovingUp || msg.isMovingDown;             // 解析运动状态
 
         //解析data1
-        msg.status = msg.originalData[2] == STATUS_ELEVATOR_NORMAL ? "正常" : HexUtils.byteToHexString(msg.originalData[2]);    // 解析电梯状态是否正常
+        if (msg.originalData[2] == STATUS_ELEVATOR_NORMAL) {// 解析电梯状态是否正常
+            msg.status = "正常";
+            if (msg.isMoving) msg.status = "运动中";
+            if (msg.isMovingUp) msg.status = "上行中";
+            if (msg.isMovingDown) msg.status = "下行中";
+        } else {
+            msg.status = HexUtils.byteToHexString(msg.originalData[2]);
+        }
 
         //解析data2
         msg.isOccupiedError = msg.originalData[3] == STATUS_OCCUPIED_ERROR;  // 解析是否独占异常
