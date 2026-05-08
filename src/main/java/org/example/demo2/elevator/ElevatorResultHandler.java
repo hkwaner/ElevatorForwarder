@@ -84,7 +84,7 @@ public class ElevatorResultHandler extends Thread {
     public boolean checkOccupiedSuccess(long userOccupyTime) {
         if (lastResult == null) return false;
         long receiveTimeNano1 = lastResult.getReceiveTimeNano();//最近一次广播的电梯消息的时间
-        boolean timeFlag = (userOccupyTime - receiveTimeNano1 > TimeUnit.MILLISECONDS.toNanos(500));
+        boolean timeFlag = (receiveTimeNano1 - userOccupyTime >= TimeUnit.MILLISECONDS.toNanos(500));
         return timeFlag && lastResult.isOccupiedSuccess();
     }
 

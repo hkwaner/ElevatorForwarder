@@ -132,7 +132,7 @@ public class LogicHandler {
                         return new Result(false, "取消占用指令执行失败!\n机器人" + usedRobotName + "正在" + s);
                     } else {
                         occupyUserInfo = null;
-                        return new Result(false, "取消占用指令执行成功!");
+                        return new Result(true, "取消占用指令执行成功!");
                     }
                 }
             }
