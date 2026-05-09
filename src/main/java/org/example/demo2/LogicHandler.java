@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.example.demo2.bean.OccupyUserInfo;
 import org.example.demo2.bean.Result;
+import org.example.demo2.bean.UsedRobotInfo;
 import org.example.demo2.elevator.ElevatorConnector;
 import org.example.demo2.elevator.ElevatorResultHandler;
 import org.example.demo2.mqtt.MqttManager;
@@ -46,20 +47,23 @@ public class LogicHandler {
      * 控制选层?是否也加上?
      */
     private final Object robotUseLock = new Object();
+    private final UsedRobotInfo usedRobotInfo = new UsedRobotInfo(null, null, USED_STATUS_NONE);//使用电梯的机器人信息
 
     public static final int USED_STATUS_NONE = -10000;//有没有机器人正在进行 进入电梯,出去电梯,在电梯中
     public static final int USED_STATUS_ROBOT_INSIDE = 0;//机器人在电梯中
     public static final int USED_STATUS_ROBOT_ENTERING = 1;//机器人在进入电梯中
     public static final int USED_STATUS_ROBOT_TO_WAITING_POINT = -1;//机器人在去候梯点
 
-    private int usedStatus = USED_STATUS_NONE;
-    private String usedRobotId = null; //使用电梯的机器人
-    private String usedRobotName = null; //使用电梯的机器人
-
 
     public OccupyUserInfo getOccupyUserInfo() {
         synchronized (occupyStatusLock) {
             return occupyUserInfo;
+        }
+    }
+
+    public UsedRobotInfo getUsedRobotInfo() {
+        synchronized (robotUseLock) {
+            return usedRobotInfo;
         }
     }
 
@@ -124,12 +128,13 @@ public class LogicHandler {
                 return new Result(false, "取消占用指令执行失败!\n电梯正在被:" + occupyUserInfo.getUserName() + "占用,如需控制请联系" + occupyUserInfo.getUserName() + "取消占用");
             else {//是自己占用的情况下 检查是否有机器人在电梯内或进出电梯中
                 synchronized (robotUseLock) {
-                    if (usedStatus != USED_STATUS_NONE) {
+                    if (usedRobotInfo.getRobotUsedStatus() != USED_STATUS_NONE) {
                         String s = "";
-                        if (usedStatus == USED_STATUS_ROBOT_INSIDE) s = "电梯内";
-                        else if (usedStatus == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
-                        else if (usedStatus == USED_STATUS_ROBOT_TO_WAITING_POINT) s = "去候梯点";
-                        return new Result(false, "取消占用指令执行失败!\n机器人" + usedRobotName + "正在" + s);
+                        if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_INSIDE) s = "电梯内";
+                        else if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
+                        else if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_TO_WAITING_POINT)
+                            s = "去候梯点";
+                        return new Result(false, "取消占用指令执行失败!\n机器人" + usedRobotInfo.getUsedRobotName() + "正在" + s);
                     } else {
                         occupyUserInfo = null;
                         return new Result(true, "取消占用指令执行成功!");
@@ -169,10 +174,10 @@ public class LogicHandler {
         String robotId = originalMsg.getSource();
         if (robotId == null) return;
         synchronized (robotUseLock) {
-            if (usedRobotId == null || robotId.equals(usedRobotId)) {
-                usedRobotId = robotId;
-                usedRobotName = robotName;
-                usedStatus = USED_STATUS_ROBOT_ENTERING;
+            if (usedRobotInfo.getUsedRobotId() == null || robotId.equals(usedRobotInfo.getUsedRobotId())) {
+                usedRobotInfo.setUsedRobotId(robotId);
+                usedRobotInfo.setUsedRobotName(robotName);
+                usedRobotInfo.setRobotUsedStatus(USED_STATUS_ROBOT_ENTERING);
             }
         }
     }
@@ -182,10 +187,10 @@ public class LogicHandler {
         String robotId = originalMsg.getSource();
         if (robotId == null) return;
         synchronized (robotUseLock) {
-            if (usedRobotId == null || robotId.equals(usedRobotId)) {
-                usedRobotId = robotId;
-                usedRobotName = robotName;
-                usedStatus = USED_STATUS_ROBOT_INSIDE;
+            if (usedRobotInfo.getUsedRobotId() == null || robotId.equals(usedRobotInfo.getUsedRobotId())) {
+                usedRobotInfo.setUsedRobotId(robotId);
+                usedRobotInfo.setUsedRobotName(robotName);
+                usedRobotInfo.setRobotUsedStatus(USED_STATUS_ROBOT_INSIDE);
             }
         }
     }
@@ -195,10 +200,10 @@ public class LogicHandler {
         String robotId = originalMsg.getSource();
         if (robotId == null) return;
         synchronized (robotUseLock) {
-            if (usedRobotId == null || robotId.equals(usedRobotId)) {
-                usedRobotId = robotId;
-                usedRobotName = robotName;
-                usedStatus = USED_STATUS_ROBOT_TO_WAITING_POINT;
+            if (usedRobotInfo.getUsedRobotId() == null || robotId.equals(usedRobotInfo.getUsedRobotId())) {
+                usedRobotInfo.setUsedRobotId(robotId);
+                usedRobotInfo.setUsedRobotName(robotName);
+                usedRobotInfo.setRobotUsedStatus(USED_STATUS_ROBOT_TO_WAITING_POINT);
             }
         }
     }
@@ -208,10 +213,10 @@ public class LogicHandler {
         String robotId = originalMsg.getSource();
         if (robotId == null) return;
         synchronized (robotUseLock) {
-            if (usedRobotId == null || robotId.equals(usedRobotId)) {
-                usedRobotId = null;
-                usedRobotName = null;
-                usedStatus = USED_STATUS_NONE;
+            if (usedRobotInfo.getUsedRobotId() == null || robotId.equals(usedRobotInfo.getUsedRobotId())) {
+                usedRobotInfo.setUsedRobotId(null);
+                usedRobotInfo.setUsedRobotName(null);
+                usedRobotInfo.setRobotUsedStatus(USED_STATUS_NONE);
             }
         }
     }
@@ -228,11 +233,12 @@ public class LogicHandler {
                 boolean isOccupiedSuccess = ElevatorResultHandler.getInstance().checkOccupiedSuccess(occupyUserInfo.getOccupyTime());
                 if (!isOccupiedSuccess) return new Result(false, "电梯选层失败!\n独占操作还未完成确认.请稍后重试");
                 synchronized (robotUseLock) {
-                    if (usedStatus != USED_STATUS_NONE && usedStatus != USED_STATUS_ROBOT_INSIDE) {
+                    if (usedRobotInfo.getRobotUsedStatus() != USED_STATUS_NONE && usedRobotInfo.getRobotUsedStatus() != USED_STATUS_ROBOT_INSIDE) {
                         String s = "";
-                        if (usedStatus == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
-                        else if (usedStatus == USED_STATUS_ROBOT_TO_WAITING_POINT) s = "去候梯点";
-                        return new Result(false, "电梯选层失败!\n机器人" + usedRobotName + "正在" + s);
+                        if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
+                        else if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_TO_WAITING_POINT)
+                            s = "去候梯点";
+                        return new Result(false, "电梯选层失败!\n机器人" + usedRobotInfo.getUsedRobotName() + "正在" + s);
                     } else {
                         boolean b = ElevatorConnector.getInstance().setSelectFloor(targetFloor);
                         if (b) return new Result(true, "电梯选层" + targetFloor + "F,执行成功");
@@ -275,12 +281,13 @@ public class LogicHandler {
                 if (!isOccupiedSuccess)
                     return new Result(false, "通知机器人进电梯失败,独占操作还未完成确认.请稍后重试");
                 synchronized (robotUseLock) {
-                    if (usedRobotId != null && !usedRobotId.equals(robotId)) {
+                    if (usedRobotInfo.getUsedRobotId() != null && !usedRobotInfo.getUsedRobotId().equals(robotId)) {
                         String s = "使用电梯";
-                        if (usedStatus == USED_STATUS_ROBOT_INSIDE) s = "电梯内";
-                        if (usedStatus == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
-                        else if (usedStatus == USED_STATUS_ROBOT_TO_WAITING_POINT) s = "去候梯点";
-                        return new Result(false, "通知机器人进电梯失败,机器人" + usedRobotName + "正在" + s);
+                        if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_INSIDE) s = "电梯内";
+                        if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_ENTERING) s = "进电梯";
+                        else if (usedRobotInfo.getRobotUsedStatus() == USED_STATUS_ROBOT_TO_WAITING_POINT)
+                            s = "去候梯点";
+                        return new Result(false, "通知机器人进电梯失败,机器人" + usedRobotInfo.getUsedRobotName() + "正在" + s);
                     }
                 }
                 mqttManager.forwarderToRobot(originalMsg, robotId);

@@ -3,6 +3,7 @@ package org.example.demo2.elevator;
 import org.example.demo2.LogicHandler;
 import org.example.demo2.MainServer;
 import org.example.demo2.bean.OccupyUserInfo;
+import org.example.demo2.bean.UsedRobotInfo;
 import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,8 @@ public class ElevatorResult implements Serializable {
     private String usedRobotId;
     private int robotUsedStatus = LogicHandler.USED_STATUS_NONE;
 
+    private boolean isElevatorNormal;
+
     private ElevatorResult() {
     }
 
@@ -69,11 +72,13 @@ public class ElevatorResult implements Serializable {
 
         //解析data1
         if (msg.originalData[2] == STATUS_ELEVATOR_NORMAL) {// 解析电梯状态是否正常
+            msg.isElevatorNormal = true;
             msg.status = "正常";
             if (msg.isMoving) msg.status = "运动中";
             if (msg.isMovingUp) msg.status = "上行中";
             if (msg.isMovingDown) msg.status = "下行中";
         } else {
+            msg.isElevatorNormal = false;
             msg.status = HexUtils.byteToHexString(msg.originalData[2]);
         }
 
@@ -87,6 +92,14 @@ public class ElevatorResult implements Serializable {
             msg.occupiedUser = occupyUserInfo.getUserId();
             msg.occupiedUserName = occupyUserInfo.getUserName();
         }
+
+        UsedRobotInfo usedRobotInfo = LogicHandler.getInstance().getUsedRobotInfo();
+        if (usedRobotInfo != null) {
+            msg.usedRobotId = usedRobotInfo.getUsedRobotId();
+            msg.robotUsedStatus = usedRobotInfo.getRobotUsedStatus();
+        }
+
+
         //data3 不用
 
         return msg;
