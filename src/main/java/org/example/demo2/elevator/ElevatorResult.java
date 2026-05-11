@@ -1,9 +1,7 @@
 package org.example.demo2.elevator;
 
 import org.example.demo2.LogicHandler;
-import org.example.demo2.MainServer;
 import org.example.demo2.bean.OccupyUserInfo;
-import org.example.demo2.bean.UsedRobotInfo;
 import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,9 +37,6 @@ public class ElevatorResult implements Serializable {
 
     private String occupiedUser;        // 当前独占的用户id
     private String occupiedUserName;    // 当前独占的用户名称
-
-    private String usedRobotId;
-    private int robotUsedStatus = LogicHandler.USED_STATUS_NONE;
 
     private boolean isElevatorNormal;
 
@@ -91,12 +86,6 @@ public class ElevatorResult implements Serializable {
         if (occupyUserInfo != null) {
             msg.occupiedUser = occupyUserInfo.getUserId();
             msg.occupiedUserName = occupyUserInfo.getUserName();
-        }
-
-        UsedRobotInfo usedRobotInfo = LogicHandler.getInstance().getUsedRobotInfo();
-        if (usedRobotInfo != null) {
-            msg.usedRobotId = usedRobotInfo.getUsedRobotId();
-            msg.robotUsedStatus = usedRobotInfo.getRobotUsedStatus();
         }
 
 

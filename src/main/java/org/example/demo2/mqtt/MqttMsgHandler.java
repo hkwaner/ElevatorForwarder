@@ -61,31 +61,6 @@ public class MqttMsgHandler implements Runnable {
                 default:
                     break;
             }
-        } else if (mqttMsg.getType().equals(MqttConstants.TYPE_ROBOT_TO_ELEVATOR_REQUEST)) {
-            switch (mqttMsg.getAction()) {
-                case MqttConstants.ACTION_ROBOT_ENTER_ELEVATOR:
-                    log.info("机器人想要进电梯 >>>");
-                    logicHandler.robotToEnterElevatorRequest(mqttMsg);
-                    log.info("机器人想要进电梯 <<<");
-                    break;
-                case MqttConstants.ACTION_ROBOT_IN_ELEVATOR:
-                    log.info("机器人在电梯内 >>>");
-                    logicHandler.robotInElevatorRequest(mqttMsg);
-                    log.info("机器人在电梯内 <<<");
-                    break;
-                case MqttConstants.ACTION_ROBOT_TO_WAITING_POINT:
-                    log.info("机器人想要去候梯点 >>>");
-                    logicHandler.robotToWaitingPointRequest(mqttMsg);
-                    log.info("机器人想要去候梯点 <<<");
-                    break;
-                case MqttConstants.ACTION_ROBOT_IN_WAITING_POINT:
-                    log.info("机器人到达候梯点 >>>");
-                    logicHandler.robotInWaitingPointRequest(mqttMsg);
-                    log.info("机器人到达候梯点 <<<");
-                default:
-                    break;
-
-            }
         }
     }
 }
