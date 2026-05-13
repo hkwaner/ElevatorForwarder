@@ -1,9 +1,7 @@
 package org.example.demo2.elevator;
 
 import org.example.demo2.LogicHandler;
-import org.example.demo2.MainServer;
 import org.example.demo2.bean.OccupyUserInfo;
-import org.example.demo2.bean.UsedRobotInfo;
 import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,9 +38,6 @@ public class ElevatorResult implements Serializable {
     private String occupiedUser;        // 当前独占的用户id
     private String occupiedUserName;    // 当前独占的用户名称
 
-    private String usedRobotId;
-    private int robotUsedStatus = LogicHandler.USED_STATUS_NONE;
-
     private boolean isElevatorNormal;
 
     private ElevatorResult() {
@@ -63,7 +58,8 @@ public class ElevatorResult implements Serializable {
         msg.originalData = data;
 
         //解析data0
-        msg.isLeveling = (msg.originalData[1] & STATUS_FLOOR_MASK) != 0;          // 解析是否在平层
+        msg.isLeveling = ((msg.originalData[1] | (byte) 0x1F) > 0 && (msg.originalData[1] >> 4) == 0); // 解析是否在平层 (((x | 1f) > 0) && ((x >> 4) == 0))
+
         int floorValue = msg.originalData[1] & STATUS_FLOOR_MASK;                 // 解析楼层
         msg.floor = floorValue > 0 ? floorValue : 0;                              // 0表示不在平层
         msg.isMovingUp = (msg.originalData[1] & STATUS_MOVING_UP) != 0;           // 解析上行状态
@@ -91,12 +87,6 @@ public class ElevatorResult implements Serializable {
         if (occupyUserInfo != null) {
             msg.occupiedUser = occupyUserInfo.getUserId();
             msg.occupiedUserName = occupyUserInfo.getUserName();
-        }
-
-        UsedRobotInfo usedRobotInfo = LogicHandler.getInstance().getUsedRobotInfo();
-        if (usedRobotInfo != null) {
-            msg.usedRobotId = usedRobotInfo.getUsedRobotId();
-            msg.robotUsedStatus = usedRobotInfo.getRobotUsedStatus();
         }
 
 
