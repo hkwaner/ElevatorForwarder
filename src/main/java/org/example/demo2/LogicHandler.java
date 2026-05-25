@@ -108,8 +108,10 @@ public class LogicHandler {
             else if (!occupyUserInfo.getUserId().equals(userId))
                 return new Result(false, "取消占用指令执行失败!\n电梯正在被:" + occupyUserInfo.getUserName() + "占用,如需控制请联系" + occupyUserInfo.getUserName() + "取消占用");
             else {//是自己占用的情况下 取消独占
-                occupyUserInfo = null;
-                return new Result(true, "取消占用指令执行成功!");
+                if (ElevatorConnector.getInstance().setOccupyElevatorUser(false)) {
+                    occupyUserInfo = null;
+                    return new Result(true, "取消占用指令执行成功!");
+                } else return new Result(false, "取消占用电梯指令执行失败!\n电梯未连接.请检查网络或稍后重试");
             }
         }
     }
