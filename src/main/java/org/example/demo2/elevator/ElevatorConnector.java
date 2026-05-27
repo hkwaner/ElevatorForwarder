@@ -41,6 +41,10 @@ public class ElevatorConnector {
     //最新的电梯返回的状态消息
     private volatile ElevatorResult lastElevatorResult;
 
+    // 最后一次收到电梯数据的时间（毫秒）
+    private volatile long lastReceiveTimeMs = System.currentTimeMillis();
+    // 数据接收超时阈值（秒），超过此时间没收到数据则认为连接异常
+    private static final int DATA_RECEIVE_TIMEOUT_SECONDS = 10;
 
     private ElevatorConnector() {
 
@@ -138,6 +142,25 @@ public class ElevatorConnector {
         return lastElevatorResult;
     }
 
+    /**
+     * 检查是否长时间未收到电梯数据
+     * @return true 表示超时，需要处理
+     */
+    public boolean isDataReceiveTimeout() {
+        long elapsed = System.currentTimeMillis() - lastReceiveTimeMs;
+        return elapsed > DATA_RECEIVE_TIMEOUT_SECONDS * 1000L;
+    }
+
+    /**
+     * 主动关闭当前连接，触发重连
+     */
+    public void closeAndReconnect() {
+        if (channel != null && channel.isActive()) {
+            log.info("[电梯] 数据接收超时，主动关闭连接以触发重连");
+            channel.close();
+        }
+    }
+
 
     /**
      * 电梯消息处理器
@@ -173,6 +196,7 @@ public class ElevatorConnector {
                     //out.add(result);
                     log.info("解析到消息 result:{}", result);
                     lastElevatorResult = result;
+                    lastReceiveTimeMs = System.currentTimeMillis();
                     failCount = 0; // 重置错误计数
                     // 继续 while 循环，看看后面是不是还粘着一个包
                 } else {
@@ -200,6 +224,7 @@ public class ElevatorConnector {
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
             log.info("[电梯] 连接断开");
+            lastElevatorResult = null;
             reconnect();
             super.channelInactive(ctx);
         }

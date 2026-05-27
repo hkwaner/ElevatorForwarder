@@ -110,7 +110,10 @@ public class MqttManager {
     }
 
     public void broadcastElevatorResult(ElevatorResult elevatorResult) {
-        if (!isConnect()) return;
+        if (!isConnect()) {
+            log.info("[MQTT] 广播跳过：MQTT未连接");
+            return;
+        }
         MqttMsg msg = new MqttMsg();
         msg.setSource(Config.MQTT_CLIENT_ID);
         msg.setTarget("subscribers");

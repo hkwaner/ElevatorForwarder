@@ -43,7 +43,14 @@ public class ElevatorResultHandler extends Thread {
     @Override
     public void run() {
         while (runFlag) {
-            ElevatorResult elevatorResult = ElevatorConnector.getInstance().getLastElevatorResult();
+            ElevatorConnector connector = ElevatorConnector.getInstance();
+
+            // 检测数据接收超时：长时间没收到电梯数据，主动关闭连接触发重连
+            if (connector.isDataReceiveTimeout()) {
+                connector.closeAndReconnect();
+            }
+
+            ElevatorResult elevatorResult = connector.getLastElevatorResult();
             if (elevatorResult != null) {
                 if (lastResult == null) {//第一次只要消息部位null就直接广播出去
                     lastResult = elevatorResult;
