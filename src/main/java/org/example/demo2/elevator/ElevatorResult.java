@@ -81,7 +81,7 @@ public class ElevatorResult implements Serializable {
         //解析data2
         msg.isOccupiedError = msg.originalData[3] == STATUS_OCCUPIED_ERROR;  // 解析是否独占异常
         if (msg.isOccupiedError && "正常".equals(msg.status)) msg.status = "独占异常"; //优先显示data1 是否正常 之后再显示独占是否异常
-        msg.isOccupiedSuccess = !msg.isOccupiedError && (msg.originalData[3] & 0x80) != 0;
+        msg.isOccupiedSuccess = !msg.isOccupiedError && msg.originalData[3] == 0x02;//公版电梯服务没有判断锁面板是否完成
 
         OccupyUserInfo occupyUserInfo = LogicHandler.getInstance().getOccupyUserInfo();
         if (occupyUserInfo != null) {

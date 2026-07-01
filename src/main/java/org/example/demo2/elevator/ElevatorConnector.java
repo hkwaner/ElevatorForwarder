@@ -1,23 +1,20 @@
 package org.example.demo2.elevator;
 
-import io.netty.bootstrap.Bootstrap;
+import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
 
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.MessageToByteEncoder;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.example.demo2.Config;
 import org.example.demo2.LogicHandler;
 import org.example.demo2.bean.OccupyUserInfo;
-import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,18 +22,21 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 电梯连接器 - 通过 Netty TCP 与电梯保持连接
+ * 电梯连接器 - 作为 TCP 服务端，等待 5G CPE 连接，通过该连接与电梯通信
  */
 public class ElevatorConnector {
     private static final Logger log = LoggerFactory.getLogger(ElevatorConnector.class);
 
+    private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
-    private Channel channel;
+    private Channel serverChannel;           // 服务端监听 channel
+    private volatile Channel clientChannel;   // 5G CPE 连接上来的 channel
+
     private volatile boolean runFlag = true;
 
-    // 重连配置
-    private int reconnectDelay = 5;
-    private final int maxReconnectDelay = 20;
+    // 端口绑定失败重试配置
+    private int bindRetryDelay = 5;
+    private final int maxBindRetryDelay = 20;
 
     //最新的电梯返回的状态消息
     private volatile ElevatorResult lastElevatorResult;
@@ -45,6 +45,11 @@ public class ElevatorConnector {
     private volatile long lastReceiveTimeMs = System.currentTimeMillis();
     // 数据接收超时阈值（秒），超过此时间没收到数据则认为连接异常
     private static final int DATA_RECEIVE_TIMEOUT_SECONDS = 10;
+
+    // 超时告警节流：上次打印告警的时间（毫秒），避免每100ms轮询都刷屏
+    private volatile long lastTimeoutWarnTimeMs = 0;
+    // 告警间隔（秒）
+    private static final int TIMEOUT_WARN_INTERVAL_SECONDS = 20;
 
     private ElevatorConnector() {
 
@@ -61,62 +66,64 @@ public class ElevatorConnector {
     public void start() {
         ElevatorResultHandler resultHandler = ElevatorResultHandler.getInstance();
         resultHandler.start();
+        bossGroup = new NioEventLoopGroup(1);
         workerGroup = new NioEventLoopGroup();
-        doConnect();
+        doBind();
     }
 
-    private void doConnect() {
+    private void doBind() {
         if (!runFlag) return;
 
-        Bootstrap bootstrap = new Bootstrap();
+        ServerBootstrap bootstrap = new ServerBootstrap();
 
-        bootstrap.group(workerGroup)
-                .channel(NioSocketChannel.class)
-                .option(ChannelOption.TCP_NODELAY, true)
-                .option(ChannelOption.SO_KEEPALIVE, true)
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
-                .handler(new ChannelInitializer<io.netty.channel.socket.SocketChannel>() {
+        bootstrap.group(bossGroup, workerGroup)
+                .channel(NioServerSocketChannel.class)
+                .option(ChannelOption.SO_BACKLOG, 128)
+                .childOption(ChannelOption.TCP_NODELAY, true)
+                .childOption(ChannelOption.SO_KEEPALIVE, true)
+                .childHandler(new ChannelInitializer<SocketChannel>() {
                     @Override
-                    protected void initChannel(io.netty.channel.socket.SocketChannel ch) {
+                    protected void initChannel(SocketChannel ch) {
                         ch.pipeline()
-//                                .addLast(new LoggingHandler(LogLevel.INFO))
                                 .addLast(new OccupyHandler())
                                 .addLast(new ElevatorMessageHandler());
                     }
                 });
 
-        log.info("[电梯] 正在连接：{}:{}", Config.ELEVATOR_HOST, Config.ELEVATOR_PORT);
+        log.info("[电梯] 正在监听端口：{}", Config.ELEVATOR_PORT);
 
-        bootstrap.connect(Config.ELEVATOR_HOST, Config.ELEVATOR_PORT).addListener((ChannelFutureListener) future -> {
+        bootstrap.bind(Config.ELEVATOR_PORT).addListener((ChannelFutureListener) future -> {
             if (future.isSuccess()) {
-                channel = future.channel();
-                log.info("[电梯] 连接成功");
-                reconnectDelay = 5;
+                serverChannel = future.channel();
+                bindRetryDelay = 5;
+                log.info("[电梯] 端口监听成功，等待5G CPE连接...");
             } else {
-                log.info("[电梯] 连接失败：{}", future.cause().getMessage());
-                reconnect();
+                log.info("[电梯] 端口监听失败：{}", future.cause().getMessage());
+                retryBind();
             }
         });
     }
 
-    private void reconnect() {
+    private void retryBind() {
         if (!runFlag) return;
-        log.info("[电梯] {}秒后重连...", reconnectDelay);
-        workerGroup.schedule(this::doConnect, reconnectDelay, TimeUnit.SECONDS);
-        reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay);
+        log.info("[电梯] {}秒后重试监听端口...", bindRetryDelay);
+        workerGroup.schedule(this::doBind, bindRetryDelay, TimeUnit.SECONDS);
+        bindRetryDelay = Math.min(bindRetryDelay * 2, maxBindRetryDelay);
     }
 
     public void stop() {
         log.info("[电梯] stop>");
         runFlag = false;
         ElevatorResultHandler.getInstance().stopRun();
-        if (channel != null) channel.close();
+        if (clientChannel != null) clientChannel.close();
+        if (serverChannel != null) serverChannel.close();
+        if (bossGroup != null) bossGroup.shutdownGracefully();
         if (workerGroup != null) workerGroup.shutdownGracefully();
         log.info("[电梯] stop<");
     }
 
     private boolean isConnected() {
-        return channel != null && channel.isActive();
+        return clientChannel != null && clientChannel.isActive();
     }
 
     public boolean setOccupyElevatorUser(boolean occupy) {
@@ -124,7 +131,7 @@ public class ElevatorConnector {
         ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, occupy ? (byte) 0x12 : (byte) 0x02, (byte) 0x00);
         log.info("setOccupyElevatorUser 发送指令 command:{}", command);
         ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
-        channel.writeAndFlush(buffer);
+        clientChannel.writeAndFlush(buffer);
         return true;
     }
 
@@ -134,7 +141,7 @@ public class ElevatorConnector {
         ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x12, (byte) 0x00);
         log.info("setSelectFloor 发送指令 command:{}", command);
         ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
-        channel.writeAndFlush(buffer);
+        clientChannel.writeAndFlush(buffer);
         return true;
     }
 
@@ -147,17 +154,21 @@ public class ElevatorConnector {
      * @return true 表示超时，需要处理
      */
     public boolean isDataReceiveTimeout() {
+        if (!isConnected()) return false;  // 没有连接时不判断超时
         long elapsed = System.currentTimeMillis() - lastReceiveTimeMs;
         return elapsed > DATA_RECEIVE_TIMEOUT_SECONDS * 1000L;
     }
 
     /**
-     * 主动关闭当前连接，触发重连
+     * 数据接收超时处理。
+     * 服务端模式下不主动关闭连接（5G CPE 不一定会自动重连），
+     * 只记录告警日志，等待 CPE 恢复数据发送或自行断开重连。
      */
     public void closeAndReconnect() {
-        if (channel != null && channel.isActive()) {
-            log.info("[电梯] 数据接收超时，主动关闭连接以触发重连");
-            channel.close();
+        long now = System.currentTimeMillis();
+        if (now - lastTimeoutWarnTimeMs > TIMEOUT_WARN_INTERVAL_SECONDS * 1000L) {
+            lastTimeoutWarnTimeMs = now;
+            log.warn("[电梯] 数据接收超时，服务端模式不主动关闭连接，等待5G CPE恢复");
         }
     }
 
@@ -167,6 +178,14 @@ public class ElevatorConnector {
      */
     private class ElevatorMessageHandler extends ByteToMessageDecoder {
         private int failCount;
+
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) throws Exception {
+            clientChannel = ctx.channel();
+            lastReceiveTimeMs = System.currentTimeMillis();
+            log.info("[电梯] 5G CPE已连接: {}", ctx.channel().remoteAddress());
+            super.channelActive(ctx);
+        }
 
         @Override
         protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
@@ -223,9 +242,12 @@ public class ElevatorConnector {
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-            log.info("[电梯] 连接断开");
+            log.info("[电梯] 5G CPE连接断开");
+            if (clientChannel == ctx.channel()) {
+                clientChannel = null;
+            }
             lastElevatorResult = null;
-            reconnect();
+            // 服务端模式：不主动重连，等待5G CPE自行重连
             super.channelInactive(ctx);
         }
     }
