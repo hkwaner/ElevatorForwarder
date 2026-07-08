@@ -1,6 +1,7 @@
 package org.example.demo2.mqtt;
 
 import org.example.demo2.LogicHandler;
+import org.example.demo2.elevator.ElevatorResultHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,7 @@ public class MqttMsgHandler implements Runnable {
         this.mqttMsg = mqttMsg;
     }
 
+    private boolean flag = false;
     @Override
     public void run() {
         if (mqttMsg == null) log.info("mqttMsg");
@@ -32,6 +34,36 @@ public class MqttMsgHandler implements Runnable {
                     log.info("独占电梯 >>>");
                     logicHandler.occupyElevator(mqttMsg);
                     log.info("独占电梯 <<<");
+
+                    if (!flag){
+                        flag  = true;
+                        while (true) {
+                            try {
+                                Thread.sleep(30 * 1000);
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+
+
+                            log.info("选层 1>>> dataReceiveTimeoutNum:{}", ElevatorResultHandler.dataReceiveTimeoutNum);
+                            MqttMsg mqttMsg1 = new MqttMsg();
+                            mqttMsg1.setValue("{\"userId\":\"userId\" ,\"targetFloor\":1}");
+                            logicHandler.selectFloor(mqttMsg1);
+                            log.info("选层 1<<<");
+
+                            try {
+                                Thread.sleep(30 * 1000);
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+
+                            log.info("选层 2>>> dataReceiveTimeoutNum:{}", ElevatorResultHandler.dataReceiveTimeoutNum);
+                            MqttMsg mqttMsg2 = new MqttMsg();
+                            mqttMsg2.setValue("{\"userId\":\"userId\" ,\"targetFloor\":2}");
+                            logicHandler.selectFloor(mqttMsg2);
+                            log.info("选层 2<<<");
+                        }
+                    }
                     break;
                 case MqttConstants.ACTION_ENTER_ELEVATOR://通知机器人进入电梯
                     log.info("通知机器人进入电梯 >>>");
