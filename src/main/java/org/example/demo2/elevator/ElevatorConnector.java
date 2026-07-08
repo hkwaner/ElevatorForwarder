@@ -46,11 +46,6 @@ public class ElevatorConnector {
     // 数据接收超时阈值（秒），超过此时间没收到数据则认为连接异常
     private static final int DATA_RECEIVE_TIMEOUT_SECONDS = 10;
 
-    // 超时告警节流：上次打印告警的时间（毫秒），避免每100ms轮询都刷屏
-    private volatile long lastTimeoutWarnTimeMs = 0;
-    // 告警间隔（秒）
-    private static final int TIMEOUT_WARN_INTERVAL_SECONDS = 20;
-
     private ElevatorConnector() {
 
     }
@@ -159,19 +154,6 @@ public class ElevatorConnector {
         return elapsed > DATA_RECEIVE_TIMEOUT_SECONDS * 1000L;
     }
 
-    /**
-     * 数据接收超时处理。
-     * 服务端模式下不主动关闭连接（5G CPE 不一定会自动重连），
-     * 只记录告警日志，等待 CPE 恢复数据发送或自行断开重连。
-     */
-    public void closeAndReconnect() {
-        long now = System.currentTimeMillis();
-        if (now - lastTimeoutWarnTimeMs > TIMEOUT_WARN_INTERVAL_SECONDS * 1000L) {
-            lastTimeoutWarnTimeMs = now;
-            log.warn("[电梯] 数据接收超时，服务端模式不主动关闭连接，等待5G CPE恢复");
-        }
-    }
-
 
     /**
      * 电梯消息处理器
@@ -242,13 +224,19 @@ public class ElevatorConnector {
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-            log.info("[电梯] 5G CPE连接断开");
+            log.info("[电梯] 5G CPE连接断开: {}", ctx.channel().remoteAddress());
             if (clientChannel == ctx.channel()) {
                 clientChannel = null;
             }
             lastElevatorResult = null;
             // 服务端模式：不主动重连，等待5G CPE自行重连
             super.channelInactive(ctx);
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            // 捕获异常但不关闭连接，避免因偶发异常导致连接被默认机制断开
+            log.warn("[电梯] 通道异常，但不主动关闭连接: {}", cause.getMessage());
         }
     }
 

@@ -40,6 +40,9 @@ public class ElevatorResultHandler extends Thread {
         return !Arrays.equals(originalData1, originalData2);
     }
 
+    private boolean lastIsDataReceiveTimeout = false;
+    public volatile static int dataReceiveTimeoutNum;
+
     @Override
     public void run() {
         while (runFlag) {
@@ -47,7 +50,10 @@ public class ElevatorResultHandler extends Thread {
 
             // 检测数据接收超时：长时间没收到电梯数据，主动关闭连接触发重连
             if (connector.isDataReceiveTimeout()) {
-                connector.closeAndReconnect();
+                if (!lastIsDataReceiveTimeout) log.info("接收数据超时 次数:{}", dataReceiveTimeoutNum += 1);
+                lastIsDataReceiveTimeout = true;
+            } else {
+                lastIsDataReceiveTimeout = false;
             }
 
             ElevatorResult elevatorResult = connector.getLastElevatorResult();
