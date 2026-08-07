@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
  */
 public class MqttMsgHandler implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(MqttMsgHandler.class);
-    private static final MqttManager mqttManager = MqttManager.getInstance();
     private static final LogicHandler logicHandler = LogicHandler.getInstance();
 
 
@@ -21,7 +20,10 @@ public class MqttMsgHandler implements Runnable {
 
     @Override
     public void run() {
-        if (mqttMsg == null) log.info("mqttMsg");
+        if (mqttMsg == null) {
+            log.warn("mqttMsg is null return");
+            return;
+        }
 
         String source = mqttMsg.getSource();
         if (source == null || source.isEmpty()) return;

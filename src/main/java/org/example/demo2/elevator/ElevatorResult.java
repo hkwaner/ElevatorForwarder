@@ -13,7 +13,7 @@ import java.util.Locale;
 public class ElevatorResult implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(ElevatorResult.class);
 
-    private static SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA);
+    private static SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.CHINA);
 
     private byte[] originalData;        // [0]设备标识 [1]data0 轿厢楼层信息 [2]data1 电梯状态 [3]data2 机器人独占地址 [4]data3 保留 [5]CRC校验
 
@@ -135,17 +135,17 @@ public class ElevatorResult implements Serializable {
 
     @Override
     public String toString() {
-        return "原始数据:" + HexUtils.bytesToHexString(originalData) +
-                ",在平层:" + isLeveling +
+        return HexUtils.bytesToHexString(originalData) +
+                ",平层:" + isLeveling +
                 ",楼层:" + floor +
-                ",上行中:" + isMovingUp +
-                ",下行中:" + isMovingDown +
-                ",运动中:" + isMoving +
+                ",上行:" + isMovingUp +
+                ",下行:" + isMovingDown +
+                ",运动:" + isMoving +
                 ",状态:" + status +
-                ",独占是否完成:" + isOccupiedSuccess +
-                ",当前独占用户:" + occupiedUser +
-                ",当前独占用户名:" + occupiedUserName +
-                ",时间:" + simpleDateFormat.format(receiveTime);
+                ",独占:[" + isOccupiedSuccess +
+                "," + occupiedUser +
+                "," + occupiedUserName + "]," +
+                simpleDateFormat.format(receiveTime);
     }
 
     /**
