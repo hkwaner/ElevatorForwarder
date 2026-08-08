@@ -38,9 +38,6 @@ public class ElevatorConnector {
     private int reconnectDelay = 5;
     private final int maxReconnectDelay = 20;
 
-    //最新的电梯返回的状态消息
-    private volatile ElevatorResult lastElevatorResult;
-
     // 最后一次收到电梯数据的时间（毫秒）
     private volatile long lastReceiveTimeMs = System.currentTimeMillis();
     // 数据接收超时阈值（秒），超过此时间没收到数据则认为连接异常
@@ -138,10 +135,6 @@ public class ElevatorConnector {
         return true;
     }
 
-    protected ElevatorResult getLastElevatorResult() {
-        return lastElevatorResult;
-    }
-
     /**
      * 检查是否长时间未收到电梯数据
      * @return true 表示超时，需要处理
@@ -159,6 +152,8 @@ public class ElevatorConnector {
             log.info("[电梯] 数据接收超时，主动关闭连接以触发重连");
             channel.close();
         }
+        // 重置计时,给重连一个完整的超时窗口,避免连续触发
+        lastReceiveTimeMs = System.currentTimeMillis();
     }
 
 
@@ -195,7 +190,7 @@ public class ElevatorConnector {
                     // 校验成功，把结果放入 out，Netty 会自动传给下一个 Handler
                     //out.add(result);
                     log.info("解析到消息 result:{}", result);
-                    lastElevatorResult = result;
+                    ElevatorResultHandler.getInstance().submit(result);
                     lastReceiveTimeMs = System.currentTimeMillis();
                     failCount = 0; // 重置错误计数
                     // 继续 while 循环，看看后面是不是还粘着一个包
@@ -224,7 +219,6 @@ public class ElevatorConnector {
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
             log.info("[电梯] 连接断开");
-            lastElevatorResult = null;
             reconnect();
             super.channelInactive(ctx);
         }

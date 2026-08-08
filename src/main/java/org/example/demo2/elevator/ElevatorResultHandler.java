@@ -4,16 +4,29 @@ import org.example.demo2.mqtt.MqttManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 处理接收到的电梯消息 处理后通过mqtt广播出去
+ * 处理接收到的电梯消息,处理后通过 mqtt 广播出去。
+ * <p>
+ * 事件驱动 + 单槽最新值:电梯侧每收到一帧调用 {@link #submit(ElevatorResult)} 放入容量1的槽,
+ * 本线程从槽取最新帧,按 1 秒墙钟冷却后广播。槽只保留最新一帧(新覆盖旧),不会积压陈旧消息。
  */
 public class ElevatorResultHandler extends Thread {
     private static final Logger log = LoggerFactory.getLogger(ElevatorResultHandler.class);
     private volatile boolean runFlag = true;
-    private MqttManager mqttManager = MqttManager.getInstance();
+    private final MqttManager mqttManager = MqttManager.getInstance();
+
+    /** 单槽:容量1,只保留最新一帧,新帧覆盖旧帧,防止积压 */
+    private final BlockingQueue<ElevatorResult> slot = new ArrayBlockingQueue<>(1);
+    /** 最新已接收帧(不论是否已广播),供占用确认等读取最新状态 */
+    private volatile ElevatorResult latestReceived;
+    /** 上次广播墙钟时间(ms),用于 1 秒冷却 */
+    private volatile long lastBroadcastMs = 0;
+    /** 广播最小间隔(毫秒) */
+    private static final long BROADCAST_INTERVAL_MS = 900L;
 
     private ElevatorResultHandler() {
         setName("ElevatorResultHandler");
@@ -27,75 +40,75 @@ public class ElevatorResultHandler extends Thread {
         return InstanceHolder.INSTANCE;
     }
 
-    private ElevatorResult lastResult;
-
-    private boolean checkResultDataDiff(ElevatorResult result1, ElevatorResult result2) {
-        //todo 多个电梯的场景下 根据设备地址区分判断????
-        if (result1 == null || result2 == null) return false;
-
-        byte[] originalData1 = result1.getOriginalData();
-        byte[] originalData2 = result2.getOriginalData();
-        if (originalData1 == null || originalData2 == null || originalData1.length == 0 || originalData2.length == 0)
-            return false;
-        return !Arrays.equals(originalData1, originalData2);
+    /**
+     * 电梯侧每收到一帧调用:放入单槽,由广播线程取最新帧发送。
+     * worker 正在忙时,新帧会覆盖槽中尚未消费的旧帧,不会积压。
+     */
+    public void submit(ElevatorResult result) {
+        if (result == null) return;
+        latestReceived = result;
+        if (!slot.offer(result)) {
+            slot.clear();
+            slot.offer(result);
+        }
     }
 
     @Override
     public void run() {
+        ElevatorConnector connector = ElevatorConnector.getInstance();
+        ElevatorResult pending = null; // 冷却期间暂存帧,不丢弃
         while (runFlag) {
-            ElevatorConnector connector = ElevatorConnector.getInstance();
-
-            // 检测数据接收超时：长时间没收到电梯数据，主动关闭连接触发重连
+            // 检测数据接收超时:长时间没收到电梯数据,主动关闭连接触发重连
             if (connector.isDataReceiveTimeout()) {
                 connector.closeAndReconnect();
             }
 
-            ElevatorResult elevatorResult = connector.getLastElevatorResult();
-            if (elevatorResult != null) {
-                if (lastResult == null) {//第一次只要消息部位null就直接广播出去
-                    lastResult = elevatorResult;
-                    mqttManager.broadcastElevatorResult(lastResult);//将电梯的状态广播出去
-                } else {
-                    //判断下时间 如果间隔太短就先不广播 消息间隔到达一定时间再广播 防止一下接收到电梯很多消息全广播出去
-                    long receiveTimeNano0 = elevatorResult.getReceiveTimeNano();
-                    long receiveTimeNano1 = lastResult.getReceiveTimeNano();//最近一次广播的电梯消息的时间
-                    //时间条件 最近接收到的电梯消息的时间必须大于上次广播的消息的时间
-                    boolean timeFlag = receiveTimeNano0 - receiveTimeNano1 > 0;
-                    //差异条件
-                    boolean diffFlag = checkResultDataDiff(lastResult, elevatorResult);
-                    //当时间条件达成的情况下 如果两条消息有差异就直接广播出去 如果没有差异如果两条消息内data内容相等的情况下 两次消息间隔大于500毫秒 才广播
-                    boolean sendFlag = timeFlag &&
-                            (diffFlag || receiveTimeNano0 - receiveTimeNano1 > TimeUnit.MILLISECONDS.toNanos(500));
-                    if (sendFlag) {
-                        lastResult = elevatorResult;
-                        mqttManager.broadcastElevatorResult(lastResult);//将电梯的状态广播出去
-                    }
-                }
+            // 用冷却剩余时间作为poll超时:冷却中等到边界,冷却后用200ms做超时检测
+            long remaining = BROADCAST_INTERVAL_MS - (System.currentTimeMillis() - lastBroadcastMs);
+            long pollTimeout = remaining > 0 ? remaining : 200L;
+
+            // 阻塞等待新帧;有新帧就更新pending为最新
+            try {
+                ElevatorResult newer = slot.poll(pollTimeout, TimeUnit.MILLISECONDS);
+                if (newer != null) pending = newer;
+            } catch (InterruptedException e) {
+                continue;
             }
 
-            try {
-                sleep(100);
-            } catch (InterruptedException e) {
-                log.info("电梯消息处理 sleep error", e);
+            // 冷却未过:保留pending,继续等
+            if (System.currentTimeMillis() - lastBroadcastMs < BROADCAST_INTERVAL_MS) {
+                continue;
             }
+
+            // 冷却已过:广播pending(如果有)
+            if (pending == null) continue;
+            ElevatorResult result = pending;
+            pending = null;
+
+            lastBroadcastMs = System.currentTimeMillis();
+            mqttManager.broadcastElevatorResult(result);
         }
     }
 
+    /**
+     * 最近一次接收到的电梯状态(只读)
+     */
     public ElevatorResult getLastResult() {
-        return lastResult;
+        return latestReceived;
     }
 
     /**
-     * 检查占用电梯操作是否完成
+     * 检查占用电梯操作是否完成(基于最新接收帧,而非上次广播帧)
      */
     public boolean checkOccupiedSuccess(long userOccupyTime) {
-        if (lastResult == null) return false;
-        long receiveTimeNano1 = lastResult.getReceiveTimeNano();//最近一次广播的电梯消息的时间
-        boolean timeFlag = (receiveTimeNano1 - userOccupyTime >= TimeUnit.MILLISECONDS.toNanos(500));
-        return timeFlag && lastResult.isOccupiedSuccess();
+        ElevatorResult latest = latestReceived;
+        if (latest == null) return false;
+        boolean timeFlag = (latest.getReceiveTimeNano() - userOccupyTime >= TimeUnit.MILLISECONDS.toNanos(500));
+        return timeFlag && latest.isOccupiedSuccess();
     }
 
     public void stopRun() {
         runFlag = false;
+        this.interrupt();
     }
 }
