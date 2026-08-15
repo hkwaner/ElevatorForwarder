@@ -13,8 +13,10 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * 事件驱动 + 单槽最新值:电梯侧每收到一帧调用 {@link #submit(ElevatorResult)} 放入容量1的槽,
  * 本线程从槽取最新帧,按 1 秒墙钟冷却后广播。槽只保留最新一帧(新覆盖旧),不会积压陈旧消息。
+ * <p>
+ * 支持看门狗重启:内部工作线程,提供心跳和重启方法。
  */
-public class ElevatorResultHandler extends Thread {
+public class ElevatorResultHandler {
     private static final Logger log = LoggerFactory.getLogger(ElevatorResultHandler.class);
     private volatile boolean runFlag = true;
     private final MqttManager mqttManager = MqttManager.getInstance();
@@ -28,8 +30,12 @@ public class ElevatorResultHandler extends Thread {
     /** 广播最小间隔(毫秒) */
     private static final long BROADCAST_INTERVAL_MS = 900L;
 
+    /** 看门狗心跳:每次循环更新 */
+    private volatile long lastLoopTimeMs = System.currentTimeMillis();
+    /** 内部工作线程 */
+    private Thread worker;
+
     private ElevatorResultHandler() {
-        setName("ElevatorResultHandler");
     }
 
     private static final class InstanceHolder {
@@ -53,11 +59,23 @@ public class ElevatorResultHandler extends Thread {
         }
     }
 
-    @Override
-    public void run() {
+    /**
+     * 启动内部工作线程
+     */
+    public synchronized void start() {
+        if (worker != null && worker.isAlive()) return;
+        runFlag = true;
+        worker = new Thread(this::runLoop, "ElevatorResultHandler");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void runLoop() {
         ElevatorConnector connector = ElevatorConnector.getInstance();
         ElevatorResult pending = null; // 冷却期间暂存帧,不丢弃
         while (runFlag) {
+            lastLoopTimeMs = System.currentTimeMillis();
+
             // 检测数据接收超时:长时间没收到电梯数据,主动关闭连接触发重连
             if (connector.isDataReceiveTimeout()) {
                 connector.closeAndReconnect();
@@ -107,8 +125,31 @@ public class ElevatorResultHandler extends Thread {
         return timeFlag && latest.isOccupiedSuccess();
     }
 
+    public long getLastLoopTimeMs() {
+        return lastLoopTimeMs;
+    }
+
+    /**
+     * 看门狗触发:停止旧线程并启动新线程
+     */
+    public synchronized void restart() {
+        log.info("[ElevatorResultHandler] 看门狗触发，重启线程");
+        runFlag = false;
+        if (worker != null) {
+            worker.interrupt();
+            try {
+                worker.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        start();
+    }
+
     public void stopRun() {
         runFlag = false;
-        this.interrupt();
+        if (worker != null) {
+            worker.interrupt();
+        }
     }
 }

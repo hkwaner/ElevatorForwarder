@@ -29,7 +29,7 @@ public class MqttManager {
     private static final int[] pos = new int[]{QOS_0/*,QOS_0*/};
     private final HashMapQueue<Long, MqttMsg> mCachedReceiveMessages = new HashMapQueue<>(100);
 
-    private MqttClient mqttClient;
+    private MqttAsyncClient mqttClient;
 
     private MqttManager() {
     }
@@ -76,7 +76,7 @@ public class MqttManager {
         log.info("[MQTT] subscribe topics:{}", Arrays.toString(topics));
 
         try {
-            mqttClient.subscribe(topics, pos);
+            mqttClient.subscribe(topics, pos).waitForCompletion(5000);
             log.info("[MQTT] 订阅成功");
         } catch (Exception ex) {
             log.info("[MQTT] 订阅失败", ex);
@@ -159,8 +159,13 @@ public class MqttManager {
         message.setPayload(msgJson.getBytes());
         message.setQos(QOS_0);
         log.info("[MQTT] sendMessage:{}", msgJson);
+        if (mqttClient == null) {
+            log.info("[MQTT] sendMessage 跳过：客户端未初始化");
+            return;
+        }
         try {
-            mqttClient.publish(Config.MQTT_TOPIC1, message);
+            // 异步发布，不等待送达，避免 broker 不响应时线程永久阻塞
+            mqttClient.publish(Config.MQTT_TOPIC1, message, null, null);
         } catch (MqttException e) {
             log.info("[MQTT] sendMessage msgJson:{} error:", msgJson, e);
         }
@@ -173,7 +178,7 @@ public class MqttManager {
         runFlag = false;
         if (mqttClient != null && mqttClient.isConnected()) {
             try {
-                mqttClient.disconnect();
+                mqttClient.disconnect().waitForCompletion(3000);
                 log.info("[MQTT] 已断开连接");
             } catch (MqttException e) {
                 log.info("[MQTT] 断开失败：", e);
@@ -181,9 +186,26 @@ public class MqttManager {
         }
     }
 
+    /**
+     * 看门狗触发：强制关闭旧客户端并重新连接，用于解除 publish 卡死等异常状态
+     */
+    public void restartClient() {
+        log.info("[MQTT] 看门狗触发，强制重启 MQTT 客户端");
+        try {
+            if (mqttClient != null) {
+                mqttClient.disconnectForcibly(1000, 1000);
+                mqttClient.close();
+            }
+        } catch (MqttException e) {
+            log.info("[MQTT] 关闭旧客户端失败", e);
+        }
+        mqttClient = null;
+        pool.execute(this::connectLoop);
+    }
+
     private void connectLoop() {
         try {
-            mqttClient = new MqttClient(Config.MQTT_URL, Config.MQTT_CLIENT_ID, new MemoryPersistence());
+            mqttClient = new MqttAsyncClient(Config.MQTT_URL, Config.MQTT_CLIENT_ID, new MemoryPersistence());
         } catch (MqttException e) {
             log.info("[MQTT] 初始化实例失败 e:{}", String.valueOf(e));
         }
@@ -221,7 +243,7 @@ public class MqttManager {
 
         while (runFlag && !mqttClient.isConnected()) {
             try {
-                mqttClient.connect(options);
+                mqttClient.connect(options, null, null).waitForCompletion(5000);
                 log.info("[MQTT] 客户端已启动，Broker: " + Config.MQTT_URL);
             } catch (MqttException e) {
                 log.info("[MQTT] 启动失败", e);

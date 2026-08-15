@@ -21,6 +21,9 @@ public class MainServer {
 
         // 初始化mqtt连接
         MqttManager.getInstance().start();
+
+        // 启动看门狗，检测 handler 卡死并自动恢复
+        new Watchdog().start();
         log.info("========================================<<<");
     }
 
