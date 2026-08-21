@@ -43,6 +43,15 @@ public class ElevatorConnector {
     // 数据接收超时阈值（秒），超过此时间没收到数据则认为连接异常
     private static final int DATA_RECEIVE_TIMEOUT_SECONDS = 10;
 
+    // 当前目标楼层(选层时记录,到达后清零),用于卡住检测
+    private volatile int targetFloor = 0;
+
+    // 重试锁:重试期间拦截机器人对原始目标楼层的自动重发,避免覆盖中转楼层指令
+    private volatile boolean retryLocked = false;
+    private volatile int retryOriginalTargetFloor = 0;
+    // 外部选层覆盖标志:重试期间外部setSelectFloor被调用时置位,重试逻辑每帧检查并放弃
+    private volatile boolean externalFloorOverride = false;
+
     private ElevatorConnector() {
 
     }
@@ -125,14 +134,74 @@ public class ElevatorConnector {
         return true;
     }
 
+    /**
+     * 外部选层(机器人/平台通过MQTT调用)。
+     * 重试进行中时,拦截对原始目标楼层的重发(机器人每3秒自动重发),
+     * 避免覆盖中转楼层指令导致电梯跑错楼层。
+     * 返回true让机器人认为指令已接受,继续等待即可。
+     */
     public boolean setSelectFloor(int floor) {
         if (!isConnected()) return false;
+        if (retryLocked && floor == retryOriginalTargetFloor) {
+            log.info("[电梯] 重试进行中,忽略原始目标楼层重发:{}", floor);
+            return true;
+        }
+        // 重试期间收到外部新指令(非重发),标记让重试逻辑放弃
+        if (retryLocked) {
+            externalFloorOverride = true;
+            log.info("[电梯] 重试进行中,外部新选层指令:{},标记放弃重试", floor);
+        }
+        doSendSelectFloor(floor);
+        return true;
+    }
+
+    /**
+     * 重试内部选层(绕过重试锁),仅供 ElevatorResultHandler 重试逻辑调用。
+     */
+    public boolean setSelectFloorForRetry(int floor) {
+        if (!isConnected()) return false;
+        doSendSelectFloor(floor);
+        return true;
+    }
+
+    /**
+     * 检查并清除外部选层覆盖标志。
+     * 重试逻辑每帧调用:如果外部setSelectFloor在重试期间被调用过,返回true让重试放弃。
+     */
+    public boolean consumeExternalFloorOverride() {
+        if (externalFloorOverride) {
+            externalFloorOverride = false;
+            return true;
+        }
+        return false;
+    }
+
+    private void doSendSelectFloor(int floor) {
+        targetFloor = floor;
         byte floorByte = (byte) (floor & 0xFF);
         ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x12, (byte) 0x00);
-        log.info("setSelectFloor 发送指令 command:{}", command);
-        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
+        log.info("setSelectFloor 发送指令 floor:{} command:{}", floor, command);
+        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());
         channel.writeAndFlush(buffer);
-        return true;
+    }
+
+    /**
+     * 设置/解除重试锁。
+     * 重试开始时锁定,拦截机器人对原始目标楼层的重发;重试结束(成功或放弃)时解锁。
+     */
+    public void setRetryLocked(boolean locked, int originalTargetFloor) {
+        this.retryLocked = locked;
+        this.retryOriginalTargetFloor = originalTargetFloor;
+        this.externalFloorOverride = false; // 锁定/解锁时清除,避免残留
+        log.info("[电梯] 重试锁:{}, 原始目标楼层:{}", locked ? "锁定" : "解锁", originalTargetFloor);
+    }
+
+    public int getTargetFloor() {
+        return targetFloor;
+    }
+
+    public void clearTargetFloor() {
+        targetFloor = 0;
     }
 
     /**

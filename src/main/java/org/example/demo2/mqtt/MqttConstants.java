@@ -17,5 +17,4 @@ public class MqttConstants {
     public static final String ACTION_RESULT_FAIL = "RESULT_FAIL";
 
 
-
 }

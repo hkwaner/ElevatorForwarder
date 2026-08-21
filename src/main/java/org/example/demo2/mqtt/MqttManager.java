@@ -140,7 +140,6 @@ public class MqttManager {
         sendMessage(msg);
     }
 
-
     public void forwarderToRobot(MqttMsg originalMsg, String robotId) {
         MqttMsg msg = new MqttMsg();
         msg.setSource(Config.MQTT_CLIENT_ID);
@@ -154,11 +153,14 @@ public class MqttManager {
     }
 
     public void sendMessage(MqttMsg msg) {
+        sendMessage(msg,true);
+    }
+    public void sendMessage(MqttMsg msg, boolean printLog) {
         MqttMessage message = new MqttMessage();
         String msgJson = JsonUtils.getGson().toJson(msg, MqttMsg.class);
         message.setPayload(msgJson.getBytes());
         message.setQos(QOS_0);
-        log.info("[MQTT] sendMessage:{}", msgJson);
+        if (printLog) log.info("[MQTT] sendMessage:{}", msgJson);
         if (mqttClient == null) {
             log.info("[MQTT] sendMessage 跳过：客户端未初始化");
             return;

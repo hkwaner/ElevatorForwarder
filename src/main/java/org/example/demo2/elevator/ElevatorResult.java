@@ -101,6 +101,17 @@ public class ElevatorResult implements Serializable {
         return 0;   // 0表示不在平层
     }
 
+    public boolean isLeveling() {
+        return isLeveling;
+    }
+
+    /**
+     * 获取原始楼层值(不论是否在平层),用于卡住检测时跟踪楼层变化
+     */
+    public int getRawFloor() {
+        return floor;
+    }
+
     public boolean isMoving() {
         return isMoving || isMovingUp || isMovingDown;//不知道会不会出现 比如 电梯不在运动中 但是 有电梯上行 所以保险点当三个都为false才表示电梯不在运动中
     }
@@ -131,6 +142,30 @@ public class ElevatorResult implements Serializable {
 
     public boolean isOccupiedSuccess() {
         return isOccupiedSuccess;
+    }
+
+    /**
+     * 创建一个"运动中"覆盖副本:isMoving=true, isLeveling=false。
+     * 重试期间广播用,防止机器人在中转楼层平层时误进出电梯。
+     * 原始对象不受影响(latestReceived等仍读真实值)。
+     */
+    public ElevatorResult asMovingOverride() {
+        ElevatorResult copy = new ElevatorResult();
+        copy.originalData = this.originalData;
+        copy.receiveTimeNano = this.receiveTimeNano;
+        copy.receiveTime = this.receiveTime;
+        copy.isLeveling = false;
+        copy.floor = this.floor;
+        copy.isMovingUp = this.isMovingUp;
+        copy.isMovingDown = this.isMovingDown;
+        copy.isMoving = true;
+        copy.isElevatorNormal = this.isElevatorNormal;
+        copy.status = this.isElevatorNormal ? "运动中(重试恢复)" : this.status;
+        copy.isOccupiedError = this.isOccupiedError;
+        copy.isOccupiedSuccess = this.isOccupiedSuccess;
+        copy.occupiedUser = this.occupiedUser;
+        copy.occupiedUserName = this.occupiedUserName;
+        return copy;
     }
 
     @Override
