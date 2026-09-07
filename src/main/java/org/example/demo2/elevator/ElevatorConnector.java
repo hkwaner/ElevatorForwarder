@@ -15,8 +15,6 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.example.demo2.Config;
-import org.example.demo2.LogicHandler;
-import org.example.demo2.bean.OccupyUserInfo;
 import org.example.demo2.utils.HexUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -98,6 +96,8 @@ public class ElevatorConnector {
                 channel = future.channel();
                 log.info("[电梯] 连接成功");
                 reconnectDelay = 5;
+                // 连接/重连成功后立即申请物理独占,保证从启动起就持梯
+                sendOccupyCommand();
             } else {
                 log.info("[电梯] 连接失败：{}", future.cause().getMessage());
                 reconnect();
@@ -125,10 +125,16 @@ public class ElevatorConnector {
         return channel != null && channel.isActive();
     }
 
-    public boolean setOccupyElevatorUser(boolean occupy) {
+    /**
+     * 物理独占保持:向电梯发送占用指令(A0 00 12 00)。
+     * 转发程序从启动起始终持梯,由 OccupyHandler 每5秒无条件续占,
+     * 既防止电梯约1分钟未收到独占指令自动释放,也能在电梯占用被外部解除后尽快重新抢占。
+     * 机器人/平台的占用取消只改逻辑属主,不再触发这里的物理释放。
+     */
+    private boolean sendOccupyCommand() {
         if (!isConnected()) return false;
-        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, occupy ? (byte) 0x12 : (byte) 0x02, (byte) 0x00);
-        log.info("setOccupyElevatorUser 发送指令 command:{}", command);
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x12, (byte) 0x00);
+        log.info("保持独占 发送指令 command:{}", command);
         ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
         channel.writeAndFlush(buffer);
         return true;
@@ -305,15 +311,10 @@ public class ElevatorConnector {
         @Override
         protected void channelIdle(ChannelHandlerContext ctx, IdleStateEvent evt) {
             if (evt.state() == IdleState.WRITER_IDLE) {
-                // 直接在这里写发送逻辑
                 if (ctx.channel() == null || !ctx.channel().isActive()) return;
-                OccupyUserInfo occupyUserInfo = LogicHandler.getInstance().getOccupyUserInfo();
-                if (occupyUserInfo != null) {
-                    ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x12, (byte) 0x00);
-                    log.info("连续5秒没有写操作,发送独占,保持独占信息 {}",command);
-                    ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
-                    ctx.writeAndFlush(buffer);
-                }
+                // 无条件续占:转发程序从启动起始终持梯,不受逻辑属主影响,
+                // 防止电梯约1分钟未收到独占指令自动释放
+                sendOccupyCommand();
             }
         }
     }

@@ -73,11 +73,9 @@ public class LogicHandler {
         if (userId == null) return new Result(false, "占用电梯指令执行失败!\nmqtt消息解析失败");
         synchronized (occupyStatusLock) {
             if (occupyUserInfo == null) {
-                //setOccupyElevatorUser 为true之后 会在没有给电梯写消息的时候自动给电梯发送独占 防止超1分没给电梯发送独占相关消息 电梯自动超时取消掉。逻辑在OccupyHandler.class
-                if (ElevatorConnector.getInstance().setOccupyElevatorUser(true)) {
-                    occupyUserInfo = new OccupyUserInfo(userId, userName, System.nanoTime());
-                    return new Result(true, "占用电梯指令执行成功!");
-                } else return new Result(false, "占用电梯指令执行失败!\n电梯未连接.请检查网络或稍后重试");
+                // 物理独占由转发程序从启动起常驻持有,这里只登记当前逻辑属主
+                occupyUserInfo = new OccupyUserInfo(userId, userName, System.nanoTime());
+                return new Result(true, "占用电梯指令执行成功!");
             } else if (occupyUserInfo.getUserId().equals(userId)) return new Result(true, "占用电梯指令执行成功");
             else
                 return new Result(false, "占用电梯指令执行失败!\n电梯正在被:" + occupyUserInfo.getUserName() + "占用,如需控制请联系" + occupyUserInfo.getUserName() + "取消占用");
@@ -107,11 +105,9 @@ public class LogicHandler {
             if (occupyUserInfo == null) return new Result(true, "取消占用指令执行失败!\n电梯当前没有被占用");
             else if (!occupyUserInfo.getUserId().equals(userId))
                 return new Result(false, "取消占用指令执行失败!\n电梯正在被:" + occupyUserInfo.getUserName() + "占用,如需控制请联系" + occupyUserInfo.getUserName() + "取消占用");
-            else {//是自己占用的情况下 取消独占
-                if (ElevatorConnector.getInstance().setOccupyElevatorUser(false)) {
-                    occupyUserInfo = null;
-                    return new Result(true, "取消占用指令执行成功!");
-                } else return new Result(false, "取消占用电梯指令执行失败!\n电梯未连接.请检查网络或稍后重试");
+            else {//是自己占用的情况下 取消逻辑独占(物理独占仍由转发程序常驻持有)
+                occupyUserInfo = null;
+                return new Result(true, "取消占用指令执行成功!");
             }
         }
     }
