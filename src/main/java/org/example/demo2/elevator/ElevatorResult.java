@@ -38,6 +38,8 @@ public class ElevatorResult implements Serializable {
     private String occupiedUser;        // 当前独占的用户id
     private String occupiedUserName;    // 当前独占的用户名称
 
+    private String workMode;            // 当前工作模式 REMOTE(远程)/LOCAL(就地),网页端据此识别是否可远程控制
+
     private boolean isElevatorNormal;
 
     private ElevatorResult() {
@@ -88,6 +90,9 @@ public class ElevatorResult implements Serializable {
             msg.occupiedUser = occupyUserInfo.getUserId();
             msg.occupiedUserName = occupyUserInfo.getUserName();
         }
+
+        // 广播当前工作模式(就地/远程),让网页端/平台识别当前是否可远程控制
+        msg.workMode = LogicHandler.getInstance().getWorkMode();
 
 
         //data3 不用
@@ -165,6 +170,7 @@ public class ElevatorResult implements Serializable {
         copy.isOccupiedSuccess = this.isOccupiedSuccess;
         copy.occupiedUser = this.occupiedUser;
         copy.occupiedUserName = this.occupiedUserName;
+        copy.workMode = this.workMode;
         return copy;
     }
 

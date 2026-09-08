@@ -1,6 +1,7 @@
 package org.example.demo2.elevator;
 
 import org.example.demo2.Config;
+import org.example.demo2.LogicHandler;
 import org.example.demo2.alarm.ElevatorAlarmReporter;
 import org.example.demo2.alarm.ElevatorAlarmType;
 import org.example.demo2.mqtt.MqttManager;
@@ -155,6 +156,10 @@ public class ElevatorResultHandler {
      * 到达中转楼层后再重新发送原始目标楼层。
      */
     private void handleStuckDetection(ElevatorResult result) {
+        // 就地模式:程序不可用,不主动干预电梯,禁止卡住自动重试/跨层(避免干扰现场人工操作)
+        if (LogicHandler.getInstance().isLocal()) {
+            return;
+        }
         int rawFloor = result.getRawFloor();
         int target = ElevatorConnector.getInstance().getTargetFloor();
 

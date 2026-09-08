@@ -126,18 +126,61 @@ public class ElevatorConnector {
     }
 
     /**
+     * 物理独占开关(volatile):远程模式默认开启,转发程序持梯;
+     * 就地模式置false,释放独占并停止续占,让现场受控面板可人工选层。
+     */
+    private volatile boolean occupyEnabled = true;
+
+    /**
+     * 设置物理独占状态。
+     * 远程:开启续占并立即申请独占。就地:立即主动释放并停止续占。
+     *
+     * @param enabled true=远程占用,false=就地释放
+     */
+    public void setOccupyEnabled(boolean enabled) {
+        this.occupyEnabled = enabled;
+        if (enabled) {
+            log.info("[电梯] 切换为远程模式,申请物理独占");
+            sendOccupyCommand();
+        } else {
+            log.info("[电梯] 切换为就地模式,释放物理独占");
+            sendReleaseCommand();
+            resetOccupyTracking();
+        }
+    }
+
+    /**
      * 物理独占保持:向电梯发送占用指令(A0 00 12 00)。
-     * 转发程序从启动起始终持梯,由 OccupyHandler 每5秒无条件续占,
+     * 远程模式下转发程序从启动起始终持梯,由 OccupyHandler 每5秒无条件续占,
      * 既防止电梯约1分钟未收到独占指令自动释放,也能在电梯占用被外部解除后尽快重新抢占。
-     * 机器人/平台的占用取消只改逻辑属主,不再触发这里的物理释放。
+     * 就地模式下不发送,避免干扰现场人工选层。
      */
     private boolean sendOccupyCommand() {
-        if (!isConnected()) return false;
+        if (!isConnected() || !occupyEnabled) return false;
         ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x12, (byte) 0x00);
         log.info("保持独占 发送指令 command:{}", command);
         ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
         channel.writeAndFlush(buffer);
         return true;
+    }
+
+    /**
+     * 物理释放:向电梯发送释放指令(A0 00 02 00),就地模式下让现场受控面板可人工选层。
+     */
+    private boolean sendReleaseCommand() {
+        if (!isConnected()) return false;
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x02, (byte) 0x00);
+        log.info("释放独占 发送指令 command:{}", command);
+        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());
+        channel.writeAndFlush(buffer);
+        return true;
+    }
+
+    /**
+     * 就地模式下重置与独占相关的广播/选层跟踪,避免残留影响。
+     */
+    private void resetOccupyTracking() {
+        targetFloor = 0;
     }
 
     /**
@@ -312,8 +355,8 @@ public class ElevatorConnector {
         protected void channelIdle(ChannelHandlerContext ctx, IdleStateEvent evt) {
             if (evt.state() == IdleState.WRITER_IDLE) {
                 if (ctx.channel() == null || !ctx.channel().isActive()) return;
-                // 无条件续占:转发程序从启动起始终持梯,不受逻辑属主影响,
-                // 防止电梯约1分钟未收到独占指令自动释放
+                // 远程模式:无条件续占,防止电梯约1分钟未收到独占指令自动释放;
+                // 就地模式:occupyEnabled=false,不发送,让现场面板可人工选层
                 sendOccupyCommand();
             }
         }

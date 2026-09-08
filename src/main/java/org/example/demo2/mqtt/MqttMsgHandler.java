@@ -60,6 +60,11 @@ public class MqttMsgHandler implements Runnable {
                     logicHandler.releaseElevator(mqttMsg);
                     log.info("取消独占 <<<");
                     break;
+                case MqttConstants.ACTION_SWITCH_WORK_MODE://切换就地/远程工作模式
+                    log.info("切换工作模式 >>>");
+                    logicHandler.switchWorkMode(mqttMsg);
+                    log.info("切换工作模式 <<<");
+                    break;
                 default:
                     break;
             }

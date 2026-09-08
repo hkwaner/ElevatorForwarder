@@ -16,6 +16,11 @@ public class MainServer {
      */
     public void start() {
         log.info("========================================>>>");
+        log.info("[代理] 正在启动,版本:{}", Config.APP_VERSION);
+        // 先恢复上次的工作模式(就地/远程),须在连接电梯之前,
+        // 就地模式下避免程序启动即抢占现场手控面板
+        LogicHandler.getInstance().initWorkModeFromDisk();
+
         // 初始化电梯连接
         ElevatorConnector.getInstance().start();
 

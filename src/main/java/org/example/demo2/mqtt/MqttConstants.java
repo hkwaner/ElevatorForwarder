@@ -8,6 +8,7 @@ public class MqttConstants {
     public static final String ACTION_EXIT_ELEVATOR = "EXIT_ELEVATOR";//通知机器人出去电梯
     public static final String ACTION_RELEASE_ELEVATOR = "RELEASE_ELEVATOR";//取消独占
     public static final String ACTION_TO_WAITING_POINT = "ACTION_TO_WAITING_POINT";//通知机器人去候梯点
+    public static final String ACTION_SWITCH_WORK_MODE = "SWITCH_WORK_MODE";//切换就地/远程工作模式(由网页端下发)
 
     public static final String TYPE_ELEVATOR_BROADCAST_INFO = "ELEVATOR_BROADCAST_INFO";
     public static final String ACTION_ELEVATOR_BASE_INFO = "ELEVATOR_BASE_INFO";

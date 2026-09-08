@@ -190,6 +190,9 @@ class ElevatorState:
         self.mqtt_port = 1883
         self.mqtt_user_id = "sim-user"
         self.mqtt_user_name = "模拟user"
+        # 工作模式: 本地期望模式(发起切换请求) 与 转发器回传的实际模式(来自广播)
+        self.work_mode = "REMOTE"
+        self.forwarder_work_mode = None
         # 最近一次来自转发器(服务)的指令提示,用于页面 toast 展示
         self.last_service_msg = None
         self.service_msg_seq = 0
@@ -226,7 +229,22 @@ class ElevatorState:
         def on_message(topic, payload):
             try:
                 msg = json.loads(payload)
-                if msg.get("type") != "RESULT":
+                msg_type = msg.get("type")
+                # 解析转发器广播,回显其当前工作模式(就地/远程)
+                if msg_type == "ELEVATOR_BROADCAST_INFO":
+                    value = msg.get("value")
+                    ev = json.loads(value) if isinstance(value, str) else (value or {})
+                    wm = (ev or {}).get("workMode")
+                    if wm:
+                        with self.lock:
+                            if self.forwarder_work_mode != wm:
+                                self.forwarder_work_mode = wm
+                                cn = "远程" if wm == "REMOTE" else "就地"
+                                self.last_service_msg = f"转发器工作模式: {cn}({wm})"
+                                self.service_msg_seq += 1
+                                self.add_log(f"转发器工作模式广播: {cn}({wm})")
+                    return
+                if msg_type != "RESULT":
                     return
                 action = msg.get("action", "")
                 original_action = msg.get("originalAction", "")
@@ -235,6 +253,7 @@ class ElevatorState:
                     "OCCUPY_ELEVATOR": "独占",
                     "SELECT_FLOORS": "选层",
                     "RELEASE_ELEVATOR": "释放",
+                    "SWITCH_WORK_MODE": "切换模式",
                 }.get(original_action, original_action)
                 if action == "RESULT_SUCCESS":
                     text = f"服务返回成功: {action_cn} {value}"
@@ -294,6 +313,8 @@ class ElevatorState:
                 "mqtt_host": self.mqtt_host,
                 "mqtt_port": self.mqtt_port,
                 "user_name": self.mqtt_user_name,
+                "work_mode": self.work_mode,
+                "forwarder_work_mode": self.forwarder_work_mode,
                 "service_msg": self.last_service_msg,
                 "service_msg_seq": self.service_msg_seq,
             }
@@ -361,6 +382,19 @@ class ElevatorState:
             if name:
                 self.mqtt_user_name = name
             self.add_log(f"用户名设置为: {self.mqtt_user_name}")
+
+    def set_work_mode(self, mode):
+        """切换就地/远程工作模式: 记录本地期望值并通过MQTT通知转发器切换"""
+        mode = (mode or "").strip().upper()
+        if mode not in ("REMOTE", "LOCAL"):
+            with self.lock:
+                self.add_log(f"工作模式设置失败: 非法值 {mode}")
+            return
+        with self.lock:
+            self.work_mode = mode
+            cn = "远程" if mode == "REMOTE" else "就地"
+            self.add_log(f"工作模式切换请求: {cn}({mode})")
+        self.mqtt_send("SWITCH_WORK_MODE", {"mode": mode})
 
     def handle_command(self, cmd, source="web"):
         with self.lock:
@@ -587,6 +621,8 @@ class WebHandler(BaseHTTPRequestHandler):
                 self.state.clear_logs()
             elif action == "set_user_name":
                 self.state.set_user_name(data.get("name", ""))
+            elif action == "switch_work_mode":
+                self.state.set_work_mode(data.get("mode", ""))
             self._send_json({"ok": True})
         except Exception as e:
             self._send_json({"error": str(e)}, 400)
@@ -796,6 +832,7 @@ body{
       <span class="chip"><span class="dot" id="connDot"></span>转发器<span class="find" id="connTxt">未连接</span></span>
       <span class="chip">TCP <span class="find">:20108</span></span>
       <span class="chip">状态帧 <span class="find">1Hz</span></span>
+      <span class="chip"><span class="dot off" id="wmDot"></span>工作模式<span class="find" id="wmChip">远程</span></span>
       <span class="chip">独占 <span class="dot off" id="occDot"></span><span class="find" id="occChip">未占用</span></span>
       <span class="chip">操作员 <span class="find" id="userChip">-</span></span>
     </div>
@@ -866,6 +903,14 @@ body{
         <button class="btn on" data-mode="auto" onclick="setMode('auto')">自动</button>
         <button class="btn" data-mode="manual" onclick="setMode('manual')">手动</button>
       </div>
+    </div>
+    <div class="pane" style="margin-top:12px">
+      <div class="pane-title">工作模式 · 就地/远程</div>
+      <div class="seg" id="workModeSeg">
+        <button class="btn on" data-mode="REMOTE" onclick="setWorkMode('REMOTE')">远程</button>
+        <button class="btn" data-mode="LOCAL" onclick="setWorkMode('LOCAL')">就地</button>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--faint);line-height:1.6">远程:程序保持独占<br>就地:释放独占,现场面板可人工选层</div>
     </div>
   </div>
 
@@ -961,6 +1006,12 @@ function poll(){
     document.getElementById('userChip').textContent=s.user_name||'-';
     document.getElementById('occChip').textContent=s.occupy?'已占用':'未占用';
 
+    /* 工作模式 chip:优先显示转发器回传模式,未回传时用本地期望 */
+    const wm=s.forwarder_work_mode||s.work_mode;
+    document.getElementById('wmChip').textContent=wm==='LOCAL'?'就地':'远程';
+    document.getElementById('wmDot').className='dot '+(wm==='LOCAL'?'own':'on');
+    document.querySelectorAll('#workModeSeg .btn').forEach(b=>b.classList.toggle('on',b.dataset.mode===wm));
+
     /* 连接点 */
     const cd=document.getElementById('connDot');
     cd.className='dot '+(s.connected?'on':'off');
@@ -1034,6 +1085,7 @@ function mqttSelect(f){post({action:'mqtt_select',floor:f})}
 function setUserName(){post({action:'set_user_name',name:document.getElementById('mUserName').value.trim()});}
 function setMqttBroker(){post({action:'set_mqtt_broker',host:document.getElementById('mqttHost').value.trim(),port:parseInt(document.getElementById('mqttPort').value)||1883});}
 function setMode(m){post({action:'set_mode',mode:m})}
+function setWorkMode(m){post({action:'switch_work_mode',mode:m})}
 function setMoveInterval(){post({action:'set_move_interval',seconds:parseFloat(document.getElementById('moveInterval').value)||1});}
 function setLevelingDelay(){post({action:'set_leveling_delay',seconds:parseFloat(document.getElementById('levelingDelay').value)||0});}
 function clearLogs(){post({action:'clear_logs'})}
