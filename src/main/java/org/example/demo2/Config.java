@@ -11,14 +11,14 @@ import java.util.List;
  */
 public class Config {
     //程序版本号,发布时同步更新;启动时打印(见 MainServer.start)
-    public static final String APP_VERSION = "1.0.0";
+    public static final String APP_VERSION = "1.0.1";
 
     //==========================================================================
     // 现场/环境配置 —— 每个现场对应整套配置(梯IP+可用楼层+MQTT+平台报警)。
     // 切换现场: 只需改下面 ACTIVE_SITE 为对应现场枚举的常量即可。
     // 新增现场: 在 Site 枚举里加一项,填全配套值即可。
     //==========================================================================
-    public static final Site ACTIVE_SITE = Site.BEIJING_TS;
+    public static final Site ACTIVE_SITE = Site.GANZAO_1;
 
     //可选现场清单(此时上下选项要以哪个为准需开发自行确认)
     public enum Site {
