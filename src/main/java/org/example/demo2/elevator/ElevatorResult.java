@@ -77,7 +77,7 @@ public class ElevatorResult implements Serializable {
             if (msg.isMovingDown) msg.status = "下行中";
         } else {
             msg.isElevatorNormal = false;
-            msg.status = HexUtils.byteToHexString(msg.originalData[2]);
+            msg.status = decodeStatus(msg.originalData[2]);
         }
 
         //解析data2
@@ -229,6 +229,35 @@ public class ElevatorResult implements Serializable {
      * 0xff
      */
     public static final byte STATUS_ELEVATOR_NORMAL = 0x00;
+
+    /**
+     * 将 data1 状态字节解码为"中文 (0xXX)"展示形式:
+     * 已知枚举返回对应中文并附原始状态值;未知状态返回"未知状态 (0xXX)"。
+     * 正常状态(0x00)在此不处理,由调用方按运动状态显示纯中文。
+     */
+    private static String decodeStatus(byte raw) {
+        String cn;
+        switch (raw & 0xFF) {
+            case 0x01: cn = "检修状态"; break;
+            case 0x02: cn = "相序故障"; break;
+            case 0x03: cn = "接地故障"; break;
+            case 0x04: cn = "运行次数上限"; break;
+            case 0x05: cn = "急停故障"; break;
+            case 0x06: cn = "门锁故障"; break;
+            case 0x07: cn = "上限位故障"; break;
+            case 0x08: cn = "下限位故障"; break;
+            case 0x09: cn = "接触器粘连故障"; break;
+            case 0x0A: cn = "继电器粘连故障"; break;
+            case 0x0B: cn = "出站超时故障"; break;
+            case 0x0C: cn = "运行超时故障"; break;
+            case 0x0D: cn = "多站输入故障"; break;
+            case 0x0E: cn = "锁梯状态"; break;
+            case 0x0F: cn = "变频器故障"; break;
+            default:   cn = null; break;
+        }
+        if (cn == null) return HexUtils.byteToHexString(raw);  // 未知状态保持纯错误码,与历史一致
+        return cn + " (0x" + HexUtils.byteToHexString(raw) + ")";
+    }
 
     //独占异常
     public static final byte STATUS_OCCUPIED_ERROR = (byte) 0xFF;
