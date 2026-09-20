@@ -30,3 +30,6 @@ replay_pid*
 /.arts/
 /.codeartsdoer/
 *.DS_Store
+# Python compiled cache
+__pycache__/
+*.pyc

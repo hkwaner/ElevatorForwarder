@@ -27,6 +27,15 @@ robot_status_elevator不为0时平台机器人行为状态要更新对文字显�
 有个单独的电梯代理服务,负责中转和处理其他程序与电梯之前的信息  所有需要使用电梯的程序都通过这个服务使用电梯
 
 
+#### 工作模式:就地 / 远程
+转发器(电梯代理服务)有"就地/远程"两种工作模式,由网页端通过MQTT下发切换(见 功能7),广播的 `workMode` 字段实时反映当前模式。
+
+- **远程(REMOTE,默认)**: 转发器从启动起**物理独占**电梯,并每5秒续占,防止电梯约1分钟未收到独占指令自动释放。此时电梯现场受控面板**无法人工选层**,所有远程控制指令正常执行。
+- **就地(LOCAL)**: 转发器**主动释放物理独占**并停止续占,让现场人工可通过受控面板选层;此时转发器**不可用**,拒绝一切远程控制指令(独占/选层/进出电梯/候梯点),并关闭电梯卡住自动重试/跨层,避免干扰现场人工操作。就地模式仅清空当前逻辑占用,仍会实时接收并广播电梯状态,方便网页端查看现场情况和当前模式。
+
+> 切换为就地会清空当前机器人的逻辑占用,切回远程后需机器人重新发送 OCCUPY 才能继续使用。
+
+
 #### 电梯状态信息广播
 电梯代理服务会通过mqtt的方式定时广播电梯状态
 
@@ -38,7 +47,7 @@ robot_status_elevator不为0时平台机器人行为状态要更新对文字显�
   "target": "subscribers",
   "type": "ELEVATOR_BROADCAST_INFO",
   "action": "ELEVATOR_BASE_INFO",
-  "value": "{\"originalData\":[-96,1,0,0,10,-45],\"receiveTime\":1776656531422,\"isLeveling\":false,\"floor\":0,\"isMovingUp\":true,\"isMovingDown\":false,\"isMoving\":true,\"isElevatorNormal\":false,\"isOccupiedError\":false,\"occupiedUser\":null,\"occupiedUserName\":null}",
+  "value": "{\"originalData\":[-96,1,0,0,10,-45],\"receiveTime\":1776656531422,\"isLeveling\":false,\"floor\":0,\"isMovingUp\":true,\"isMovingDown\":false,\"isMoving\":true,\"status\":\"上行中\",\"occupiedUser\":null,\"occupiedUserName\":null,\"workMode\":\"REMOTE\",\"isElevatorNormal\":true}",
   "originalType": null,
   "originalAction": null
 }
@@ -58,6 +67,8 @@ robot_status_elevator不为0时平台机器人行为状态要更新对文字显�
     "status": "正常",//正常和异常状态(TODO其他异常对应的String值)
     "occupiedUser": "429370_Y_1000000_1767771361861_224314",//独占成功时的mqtt的source null表示没人独占
     "occupiedUserName": "张三",//独占时用户的名称或机器人名称null表示没人独占
+    "workMode": "REMOTE",//转发器当前工作模式: REMOTE(远程,程序保持独占)/ LOCAL(就地,释放独占,现场手控面板可用)。网页端据此判断当前是否可远程控制。
+    "isElevatorNormal": true,//电梯是否正常(data1==0x00);异常时 status 为该故障码(十六进制)
 }
 ```
 
@@ -153,3 +164,27 @@ robot_status_elevator不为0时平台机器人行为状态要更新对文字显�
 }
 ```
 返回参考通用示例
+
+
+##### 功能7.平台切换就地/远程工作模式
+由网页端(管理端)下发,切换转发器的就地/远程工作模式。**该指令是设备级管理指令,不校验逻辑占用权限**(即任意方都可切换,不需要先占用电梯)。
+```json5
+{
+  "type": "ELEVATOR_CONTROL",
+  "action": "SWITCH_WORK_MODE",
+  "target": "elevator_proxy",
+  "value": "{\"mode\":\"LOCAL\"}",//mode 取值: REMOTE(远程,默认) 或 LOCAL(就地)
+}
+```
+返回参考通用示例,成功时 value 提示当前模式;若 `mode` 值不合法(value解析失败),返回 RESULT_FAIL 并提示。
+
+| 模式 | 物理独占 | 远程控制指令(独占/选层/进出电梯/候梯点) | 卡住自动重试/跨层 |
+|---|---|---|---|
+| REMOTE(远程) | 保持独占,每5秒续占 | 正常执行 | 开启 |
+| LOCAL(就地) | 主动释放并停止续占 | 全部拒绝,提示"当前为就地模式,远程控制不可用" | 关闭 |
+
+切换后的注意事项:
+1. **切到就地**: 同时清空当前机器人的逻辑占用(`occupiedUser/occupiedUserName` 广播为 null),并立即向电梯发送释放占用指令,让现场受控面板可人工选层。转发器仍实时广播电梯状态,`workMode="LOCAL"`。
+2. **切到远程**: 立即重新发送占用指令,再次物理独占电梯,并恢复所有远程控制与自动重试。`workMode="REMOTE"`。
+3. 因就地会清空逻辑占用,切回远程后机器人需**重新发送 `OCCUPY_ELEVATOR`** 才能继续选层。
+4. 转发器**重启后默认回到远程模式**;掉电不记忆就地状态。

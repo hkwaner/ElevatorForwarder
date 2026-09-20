@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
  */
 public class MqttMsgHandler implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(MqttMsgHandler.class);
-    private static final MqttManager mqttManager = MqttManager.getInstance();
     private static final LogicHandler logicHandler = LogicHandler.getInstance();
 
 
@@ -21,7 +20,10 @@ public class MqttMsgHandler implements Runnable {
 
     @Override
     public void run() {
-        if (mqttMsg == null) log.info("mqttMsg");
+        if (mqttMsg == null) {
+            log.warn("mqttMsg is null return");
+            return;
+        }
 
         String source = mqttMsg.getSource();
         if (source == null || source.isEmpty()) return;
@@ -57,6 +59,11 @@ public class MqttMsgHandler implements Runnable {
                     log.info("取消独占 >>>");
                     logicHandler.releaseElevator(mqttMsg);
                     log.info("取消独占 <<<");
+                    break;
+                case MqttConstants.ACTION_SWITCH_WORK_MODE://切换就地/远程工作模式
+                    log.info("切换工作模式 >>>");
+                    logicHandler.switchWorkMode(mqttMsg);
+                    log.info("切换工作模式 <<<");
                     break;
                 default:
                     break;

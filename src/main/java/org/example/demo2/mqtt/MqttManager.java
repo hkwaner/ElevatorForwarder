@@ -14,6 +14,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * mqtt消息管理器 - 通过 MQTT 与多个机器人或管理平台通信
@@ -29,7 +30,12 @@ public class MqttManager {
     private static final int[] pos = new int[]{QOS_0/*,QOS_0*/};
     private final HashMapQueue<Long, MqttMsg> mCachedReceiveMessages = new HashMapQueue<>(100);
 
-    private MqttClient mqttClient;
+    //相同内容的发送日志限流:内容变化时立即打印,内容不变则至少间隔 10s 才打印一次,避免广播高频刷屏
+    private static final long SAME_MSG_PRINT_INTERVAL_MS = 10_000;
+    private volatile String lastPrintedMsgJson = null;
+    private final AtomicLong lastPrintedMsgTimeMs = new AtomicLong(0);
+
+    private MqttAsyncClient mqttClient;
 
     private MqttManager() {
     }
@@ -76,7 +82,7 @@ public class MqttManager {
         log.info("[MQTT] subscribe topics:{}", Arrays.toString(topics));
 
         try {
-            mqttClient.subscribe(topics, pos);
+            mqttClient.subscribe(topics, pos).waitForCompletion(5000);
             log.info("[MQTT] 订阅成功");
         } catch (Exception ex) {
             log.info("[MQTT] 订阅失败", ex);
@@ -122,8 +128,14 @@ public class MqttManager {
         String json = JsonUtils.getGson().toJson(elevatorResult, ElevatorResult.class);
         msg.setValue(json);
 
-        //示例参考readme.md
-        sendMessage(msg);
+        // 示例参考readme.md
+        // 打印限流:以剔除receiveTime后的业务内容为判据,内容不变则至少间隔10s才打印一次
+        sendMessage(msg, shouldPrintElevatorLog(stableBroadcastKey(json)));
+    }
+
+    private String stableBroadcastKey(String valueJson) {
+        // receiveTime 是每帧都会变的接收时间戳,剔除后仅以业务状态字段判断"内容是否变化"
+        return valueJson.replaceAll("\"receiveTime\":\\d+", "");
     }
 
     public void sendResult(MqttMsg originalMsg, boolean success, String value) {
@@ -140,7 +152,6 @@ public class MqttManager {
         sendMessage(msg);
     }
 
-
     public void forwarderToRobot(MqttMsg originalMsg, String robotId) {
         MqttMsg msg = new MqttMsg();
         msg.setSource(Config.MQTT_CLIENT_ID);
@@ -154,16 +165,44 @@ public class MqttManager {
     }
 
     public void sendMessage(MqttMsg msg) {
+        sendMessage(msg,true);
+    }
+    public void sendMessage(MqttMsg msg, boolean printLog) {
         MqttMessage message = new MqttMessage();
         String msgJson = JsonUtils.getGson().toJson(msg, MqttMsg.class);
         message.setPayload(msgJson.getBytes());
         message.setQos(QOS_0);
-        log.info("[MQTT] sendMessage:{}", msgJson);
+        if (printLog) log.info("[MQTT] sendMessage:{}", msgJson);
+        if (mqttClient == null) {
+            log.info("[MQTT] sendMessage 跳过：客户端未初始化");
+            return;
+        }
         try {
-            mqttClient.publish(Config.MQTT_TOPIC1, message);
+            // 异步发布，不等待送达，避免 broker 不响应时线程永久阻塞
+            mqttClient.publish(Config.MQTT_TOPIC1, message, null, null);
         } catch (MqttException e) {
             log.info("[MQTT] sendMessage msgJson:{} error:", msgJson, e);
         }
+    }
+
+    /**
+     * 电梯状态广播的日志限流:业务内容(剔除receiveTime)与上次不同→立即打印;
+     * 相同→距上次打印已超过 {@link #SAME_MSG_PRINT_INTERVAL_MS} 才再打印,否则静默。
+     * 仅影响日志输出,不影响实际publish。
+     */
+    private boolean shouldPrintElevatorLog(String key) {
+        long now = System.currentTimeMillis();
+        String last = lastPrintedMsgJson;
+        if (!key.equals(last)) {
+            lastPrintedMsgJson = key;
+            lastPrintedMsgTimeMs.set(now);
+            return true;
+        }
+        if (now - lastPrintedMsgTimeMs.get() >= SAME_MSG_PRINT_INTERVAL_MS) {
+            lastPrintedMsgTimeMs.set(now);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -173,7 +212,7 @@ public class MqttManager {
         runFlag = false;
         if (mqttClient != null && mqttClient.isConnected()) {
             try {
-                mqttClient.disconnect();
+                mqttClient.disconnect().waitForCompletion(3000);
                 log.info("[MQTT] 已断开连接");
             } catch (MqttException e) {
                 log.info("[MQTT] 断开失败：", e);
@@ -181,9 +220,26 @@ public class MqttManager {
         }
     }
 
+    /**
+     * 看门狗触发：强制关闭旧客户端并重新连接，用于解除 publish 卡死等异常状态
+     */
+    public void restartClient() {
+        log.info("[MQTT] 看门狗触发，强制重启 MQTT 客户端");
+        try {
+            if (mqttClient != null) {
+                mqttClient.disconnectForcibly(1000, 1000);
+                mqttClient.close();
+            }
+        } catch (MqttException e) {
+            log.info("[MQTT] 关闭旧客户端失败", e);
+        }
+        mqttClient = null;
+        pool.execute(this::connectLoop);
+    }
+
     private void connectLoop() {
         try {
-            mqttClient = new MqttClient(Config.MQTT_URL, Config.MQTT_CLIENT_ID, new MemoryPersistence());
+            mqttClient = new MqttAsyncClient(Config.MQTT_URL, Config.MQTT_CLIENT_ID, new MemoryPersistence());
         } catch (MqttException e) {
             log.info("[MQTT] 初始化实例失败 e:{}", String.valueOf(e));
         }
@@ -221,7 +277,7 @@ public class MqttManager {
 
         while (runFlag && !mqttClient.isConnected()) {
             try {
-                mqttClient.connect(options);
+                mqttClient.connect(options, null, null).waitForCompletion(5000);
                 log.info("[MQTT] 客户端已启动，Broker: " + Config.MQTT_URL);
             } catch (MqttException e) {
                 log.info("[MQTT] 启动失败", e);

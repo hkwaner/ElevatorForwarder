@@ -13,7 +13,7 @@ import java.util.Locale;
 public class ElevatorResult implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(ElevatorResult.class);
 
-    private static SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA);
+    private static SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.CHINA);
 
     private byte[] originalData;        // [0]设备标识 [1]data0 轿厢楼层信息 [2]data1 电梯状态 [3]data2 机器人独占地址 [4]data3 保留 [5]CRC校验
 
@@ -37,6 +37,8 @@ public class ElevatorResult implements Serializable {
 
     private String occupiedUser;        // 当前独占的用户id
     private String occupiedUserName;    // 当前独占的用户名称
+
+    private String workMode;            // 当前工作模式 REMOTE(远程)/LOCAL(就地),网页端据此识别是否可远程控制
 
     private boolean isElevatorNormal;
 
@@ -75,7 +77,7 @@ public class ElevatorResult implements Serializable {
             if (msg.isMovingDown) msg.status = "下行中";
         } else {
             msg.isElevatorNormal = false;
-            msg.status = HexUtils.byteToHexString(msg.originalData[2]);
+            msg.status = decodeStatus(msg.originalData[2]);
         }
 
         //解析data2
@@ -89,6 +91,9 @@ public class ElevatorResult implements Serializable {
             msg.occupiedUserName = occupyUserInfo.getUserName();
         }
 
+        // 广播当前工作模式(就地/远程),让网页端/平台识别当前是否可远程控制
+        msg.workMode = LogicHandler.getInstance().getWorkMode();
+
 
         //data3 不用
 
@@ -99,6 +104,17 @@ public class ElevatorResult implements Serializable {
     public int getFloor() {
         if (isLeveling && floor > 0) return floor;
         return 0;   // 0表示不在平层
+    }
+
+    public boolean isLeveling() {
+        return isLeveling;
+    }
+
+    /**
+     * 获取原始楼层值(不论是否在平层),用于卡住检测时跟踪楼层变化
+     */
+    public int getRawFloor() {
+        return floor;
     }
 
     public boolean isMoving() {
@@ -133,19 +149,44 @@ public class ElevatorResult implements Serializable {
         return isOccupiedSuccess;
     }
 
+    /**
+     * 创建一个"运动中"覆盖副本:isMoving=true, isLeveling=false。
+     * 重试期间广播用,防止机器人在中转楼层平层时误进出电梯。
+     * 原始对象不受影响(latestReceived等仍读真实值)。
+     */
+    public ElevatorResult asMovingOverride() {
+        ElevatorResult copy = new ElevatorResult();
+        copy.originalData = this.originalData;
+        copy.receiveTimeNano = this.receiveTimeNano;
+        copy.receiveTime = this.receiveTime;
+        copy.isLeveling = false;
+        copy.floor = this.floor;
+        copy.isMovingUp = this.isMovingUp;
+        copy.isMovingDown = this.isMovingDown;
+        copy.isMoving = true;
+        copy.isElevatorNormal = this.isElevatorNormal;
+        copy.status = this.isElevatorNormal ? "运动中(重试恢复)" : this.status;
+        copy.isOccupiedError = this.isOccupiedError;
+        copy.isOccupiedSuccess = this.isOccupiedSuccess;
+        copy.occupiedUser = this.occupiedUser;
+        copy.occupiedUserName = this.occupiedUserName;
+        copy.workMode = this.workMode;
+        return copy;
+    }
+
     @Override
     public String toString() {
-        return "原始数据:" + HexUtils.bytesToHexString(originalData) +
-                ",在平层:" + isLeveling +
+        return HexUtils.bytesToHexString(originalData) +
+                ",平层:" + isLeveling +
                 ",楼层:" + floor +
-                ",上行中:" + isMovingUp +
-                ",下行中:" + isMovingDown +
-                ",运动中:" + isMoving +
+                ",上行:" + isMovingUp +
+                ",下行:" + isMovingDown +
+                ",运动:" + isMoving +
                 ",状态:" + status +
-                ",独占是否完成:" + isOccupiedSuccess +
-                ",当前独占用户:" + occupiedUser +
-                ",当前独占用户名:" + occupiedUserName +
-                ",时间:" + simpleDateFormat.format(receiveTime);
+                ",独占:[" + isOccupiedSuccess +
+                "," + occupiedUser +
+                "," + occupiedUserName + "]," +
+                simpleDateFormat.format(receiveTime);
     }
 
     /**
@@ -188,6 +229,35 @@ public class ElevatorResult implements Serializable {
      * 0xff
      */
     public static final byte STATUS_ELEVATOR_NORMAL = 0x00;
+
+    /**
+     * 将 data1 状态字节解码为"中文 (0xXX)"展示形式:
+     * 已知枚举返回对应中文并附原始状态值;未知状态返回"未知状态 (0xXX)"。
+     * 正常状态(0x00)在此不处理,由调用方按运动状态显示纯中文。
+     */
+    private static String decodeStatus(byte raw) {
+        String cn;
+        switch (raw & 0xFF) {
+            case 0x01: cn = "检修状态"; break;
+            case 0x02: cn = "相序故障"; break;
+            case 0x03: cn = "接地故障"; break;
+            case 0x04: cn = "运行次数上限"; break;
+            case 0x05: cn = "急停故障"; break;
+            case 0x06: cn = "门锁故障"; break;
+            case 0x07: cn = "上限位故障"; break;
+            case 0x08: cn = "下限位故障"; break;
+            case 0x09: cn = "接触器粘连故障"; break;
+            case 0x0A: cn = "继电器粘连故障"; break;
+            case 0x0B: cn = "出站超时故障"; break;
+            case 0x0C: cn = "运行超时故障"; break;
+            case 0x0D: cn = "多站输入故障"; break;
+            case 0x0E: cn = "锁梯状态"; break;
+            case 0x0F: cn = "变频器故障"; break;
+            default:   cn = null; break;
+        }
+        if (cn == null) return HexUtils.byteToHexString(raw);  // 未知状态保持纯错误码,与历史一致
+        return cn + " (0x" + HexUtils.byteToHexString(raw) + ")";
+    }
 
     //独占异常
     public static final byte STATUS_OCCUPIED_ERROR = (byte) 0xFF;

@@ -13,8 +13,6 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.example.demo2.Config;
-import org.example.demo2.LogicHandler;
-import org.example.demo2.bean.OccupyUserInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,13 +36,19 @@ public class ElevatorConnector {
     private int bindRetryDelay = 5;
     private final int maxBindRetryDelay = 20;
 
-    //最新的电梯返回的状态消息
-    private volatile ElevatorResult lastElevatorResult;
-
     // 最后一次收到电梯数据的时间（毫秒）
     private volatile long lastReceiveTimeMs = System.currentTimeMillis();
     // 数据接收超时阈值（秒），超过此时间没收到数据则认为连接异常
     private static final int DATA_RECEIVE_TIMEOUT_SECONDS = 10;
+
+    // 当前目标楼层(选层时记录,到达后清零),用于卡住检测
+    private volatile int targetFloor = 0;
+
+    // 重试锁:重试期间拦截机器人对原始目标楼层的自动重发,避免覆盖中转楼层指令
+    private volatile boolean retryLocked = false;
+    private volatile int retryOriginalTargetFloor = 0;
+    // 外部选层覆盖标志:重试期间外部setSelectFloor被调用时置位,重试逻辑每帧检查并放弃
+    private volatile boolean externalFloorOverride = false;
 
     private ElevatorConnector() {
 
@@ -121,27 +125,132 @@ public class ElevatorConnector {
         return clientChannel != null && clientChannel.isActive();
     }
 
-    public boolean setOccupyElevatorUser(boolean occupy) {
-        if (!isConnected()) return false;
-        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, occupy ? (byte) 0x12 : (byte) 0x02, (byte) 0x00);
-        log.info("setOccupyElevatorUser 发送指令 command:{}", command);
+    /**
+     * 物理独占开关(volatile):远程模式默认开启,转发程序持梯;
+     * 就地模式置false,释放独占并停止续占,让现场受控面板可人工选层。
+     */
+    private volatile boolean occupyEnabled = true;
+
+    /**
+     * 设置物理独占状态。
+     * 远程:开启续占并立即申请独占。就地:立即主动释放并停止续占。
+     *
+     * @param enabled true=远程占用,false=就地释放
+     */
+    public void setOccupyEnabled(boolean enabled) {
+        this.occupyEnabled = enabled;
+        if (enabled) {
+            log.info("[电梯] 切换为远程模式,申请物理独占");
+            sendOccupyCommand();
+        } else {
+            log.info("[电梯] 切换为就地模式,释放物理独占");
+            sendReleaseCommand();
+            resetOccupyTracking();
+        }
+    }
+
+    /**
+     * 物理独占保持:向电梯发送占用指令(A0 00 12 00)。
+     * 远程模式下转发程序从启动起始终持梯,由 OccupyHandler 每5秒无条件续占,
+     * 既防止电梯约1分钟未收到独占指令自动释放,也能在电梯占用被外部解除后尽快重新抢占。
+     * 就地模式下不发送,避免干扰现场人工选层。
+     */
+    private boolean sendOccupyCommand() {
+        if (!isConnected() || !occupyEnabled) return false;
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x12, (byte) 0x00);
+        log.info("保持独占 发送指令 command:{}", command);
         ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
         clientChannel.writeAndFlush(buffer);
         return true;
     }
 
+    /**
+     * 物理释放:向电梯发送释放指令(A0 00 02 00),就地模式下让现场受控面板可人工选层。
+     */
+    private boolean sendReleaseCommand() {
+        if (!isConnected()) return false;
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x02, (byte) 0x00);
+        log.info("释放独占 发送指令 command:{}", command);
+        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());
+        clientChannel.writeAndFlush(buffer);
+        return true;
+    }
+
+    /**
+     * 就地模式下重置与独占相关的广播/选层跟踪,避免残留影响。
+     */
+    private void resetOccupyTracking() {
+        targetFloor = 0;
+    }
+
+    /**
+     * 外部选层(机器人/平台通过MQTT调用)。
+     * 重试进行中时,拦截对原始目标楼层的重发(机器人每3秒自动重发),
+     * 避免覆盖中转楼层指令导致电梯跑错楼层。
+     * 返回true让机器人认为指令已接受,继续等待即可。
+     */
     public boolean setSelectFloor(int floor) {
         if (!isConnected()) return false;
-        byte floorByte = (byte) (floor & 0xFF);
-        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x12, (byte) 0x00);
-        log.info("setSelectFloor 发送指令 command:{}", command);
-        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
-        clientChannel.writeAndFlush(buffer);
+        if (retryLocked && floor == retryOriginalTargetFloor) {
+            log.info("[电梯] 重试进行中,忽略原始目标楼层重发:{}", floor);
+            return true;
+        }
+        // 重试期间收到外部新指令(非重发),标记让重试逻辑放弃
+        if (retryLocked) {
+            externalFloorOverride = true;
+            log.info("[电梯] 重试进行中,外部新选层指令:{},标记放弃重试", floor);
+        }
+        doSendSelectFloor(floor);
         return true;
     }
 
-    protected ElevatorResult getLastElevatorResult() {
-        return lastElevatorResult;
+    /**
+     * 重试内部选层(绕过重试锁),仅供 ElevatorResultHandler 重试逻辑调用。
+     */
+    public boolean setSelectFloorForRetry(int floor) {
+        if (!isConnected()) return false;
+        doSendSelectFloor(floor);
+        return true;
+    }
+
+    /**
+     * 检查并清除外部选层覆盖标志。
+     * 重试逻辑每帧调用:如果外部setSelectFloor在重试期间被调用过,返回true让重试放弃。
+     */
+    public boolean consumeExternalFloorOverride() {
+        if (externalFloorOverride) {
+            externalFloorOverride = false;
+            return true;
+        }
+        return false;
+    }
+
+    private void doSendSelectFloor(int floor) {
+        targetFloor = floor;
+        byte floorByte = (byte) (floor & 0xFF);
+        ElevatorCommand command = ElevatorCommand.buildToElevatorMsg(floorByte, (byte) 0x12, (byte) 0x00);
+        log.info("setSelectFloor 发送指令 floor:{} command:{}", floor, command);
+        ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());
+        clientChannel.writeAndFlush(buffer);
+    }
+
+    /**
+     * 设置/解除重试锁。
+     * 重试开始时锁定,拦截机器人对原始目标楼层的重发;重试结束(成功或放弃)时解锁。
+     */
+    public void setRetryLocked(boolean locked, int originalTargetFloor) {
+        this.retryLocked = locked;
+        this.retryOriginalTargetFloor = originalTargetFloor;
+        this.externalFloorOverride = false; // 锁定/解锁时清除,避免残留
+        log.info("[电梯] 重试锁:{}, 原始目标楼层:{}", locked ? "锁定" : "解锁", originalTargetFloor);
+    }
+
+    public int getTargetFloor() {
+        return targetFloor;
+    }
+
+    public void clearTargetFloor() {
+        targetFloor = 0;
     }
 
     /**
@@ -154,7 +263,6 @@ public class ElevatorConnector {
         return elapsed > DATA_RECEIVE_TIMEOUT_SECONDS * 1000L;
     }
 
-
     /**
      * 电梯消息处理器
      */
@@ -166,6 +274,8 @@ public class ElevatorConnector {
             clientChannel = ctx.channel();
             lastReceiveTimeMs = System.currentTimeMillis();
             log.info("[电梯] 5G CPE已连接: {}", ctx.channel().remoteAddress());
+            // DTU/5G CPE 连上后立即申请物理独占,保证从建立连接起就持梯(就地模式内部会跳过)
+            sendOccupyCommand();
             super.channelActive(ctx);
         }
 
@@ -196,7 +306,7 @@ public class ElevatorConnector {
                     // 校验成功，把结果放入 out，Netty 会自动传给下一个 Handler
                     //out.add(result);
                     log.info("解析到消息 result:{}", result);
-                    lastElevatorResult = result;
+                    ElevatorResultHandler.getInstance().submit(result);
                     lastReceiveTimeMs = System.currentTimeMillis();
                     failCount = 0; // 重置错误计数
                     // 继续 while 循环，看看后面是不是还粘着一个包
@@ -228,7 +338,6 @@ public class ElevatorConnector {
             if (clientChannel == ctx.channel()) {
                 clientChannel = null;
             }
-            lastElevatorResult = null;
             // 服务端模式：不主动重连，等待5G CPE自行重连
             super.channelInactive(ctx);
         }
@@ -252,15 +361,10 @@ public class ElevatorConnector {
         @Override
         protected void channelIdle(ChannelHandlerContext ctx, IdleStateEvent evt) {
             if (evt.state() == IdleState.WRITER_IDLE) {
-                // 直接在这里写发送逻辑
                 if (ctx.channel() == null || !ctx.channel().isActive()) return;
-                OccupyUserInfo occupyUserInfo = LogicHandler.getInstance().getOccupyUserInfo();
-                if (occupyUserInfo != null) {
-                    ElevatorCommand command = ElevatorCommand.buildToElevatorMsg((byte) 0x00, (byte) 0x12, (byte) 0x00);
-                    log.info("连续5秒没有写操作,发送独占,保持独占信息 {}",command);
-                    ByteBuf buffer = Unpooled.wrappedBuffer(command.getBytes());//将 byte[] 包装成 ByteBuf (不复制内存，直接使用原数组)
-                    ctx.writeAndFlush(buffer);
-                }
+                // 远程模式:无条件续占,防止电梯约1分钟未收到独占指令自动释放;
+                // 就地模式:occupyEnabled=false,不发送,让现场面板可人工选层
+                sendOccupyCommand();
             }
         }
     }
