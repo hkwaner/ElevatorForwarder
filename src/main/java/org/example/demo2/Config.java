@@ -11,7 +11,7 @@ import java.util.List;
  */
 public class Config {
     //程序版本号,发布时同步更新;启动时打印(见 MainServer.start)
-    public static final String APP_VERSION = "1.0.1";
+    public static final String APP_VERSION = "1.0.1-build-20260923-1056";
 
     //==========================================================================
     // 现场/环境配置 —— 每个现场对应整套配置(梯IP+可用楼层+MQTT+平台报警)。
@@ -23,10 +23,9 @@ public class Config {
     //可选现场清单(各字段含义见构造器)
     //LIMING_HG 值当前为占位,部署时需按黎明化工现场修改(TODO)
     public enum Site {
-        GANZAO_1("干燥一期·广拓能源", "192.168.8.80",  new int[]{1,2,3,4,5}, "tcp://192.168.8.3:1883",  "http://192.168.8.3:8080",  "FCICA-FB260016"),
-        GANZAO_2("干燥二期·高新材料", "192.168.8.81",  new int[]{1,3,4},    "tcp://192.168.8.4:1883",  "http://192.168.8.4:8080",  "FCICA-FB260003"),
-        BEIJING_TS("北京测试模拟",    "192.168.10.31", new int[]{1,2,3,4,5}, "tcp://192.168.10.94:1883","http://192.168.10.94:8080","FLADY-FB120005"),
-        LIMING_HG("黎明化工",        "0.0.0.0",        new int[]{1,2,3,4},   "tcp://192.168.8.4:1883",  "http://192.168.8.4:8080",  "FCICA-FB260003"); // TODO 占位值,部署时按黎明化工现场修改
+        // 最后参数 needOccupyConfirm: true=选层前须确认锁面板/占用完成(广拓/高新); false=公版梯无锁面板反馈,无独占异常即视为已占用(黎明化工)
+        BEIJING_TS("北京测试模拟", "192.168.10.31", new int[]{1, 2, 3, 4, 5}, "tcp://192.168.10.94:1883", "http://192.168.10.94:8080", "FLADY-FB120005", true),
+        LIMING_HG("黎明化工", "127.0.0.1", new int[]{1, 2, 3, 4}, "tcp://127.0.0.1:1883", "http://127.0.0.1:8080", "FCICA-FB270018", false); // TODO 占位值,部署时按黎明化工现场修改
 
         private final String desc;
         private final String elevatorHost;
@@ -34,23 +33,46 @@ public class Config {
         private final String mqttUrl;
         private final String platformBaseUrl;
         private final String alarmRobotId;
+        private final boolean needOccupyConfirm;
 
         Site(String desc, String elevatorHost, int[] floors, String mqttUrl,
-             String platformBaseUrl, String alarmRobotId) {
+             String platformBaseUrl, String alarmRobotId, boolean needOccupyConfirm) {
             this.desc = desc;
             this.elevatorHost = elevatorHost;
             this.floors = floors;
             this.mqttUrl = mqttUrl;
             this.platformBaseUrl = platformBaseUrl;
             this.alarmRobotId = alarmRobotId;
+            this.needOccupyConfirm = needOccupyConfirm;
         }
 
-        public String getDesc() { return desc; }
-        public String getElevatorHost() { return elevatorHost; }
-        public int[] getFloors() { return floors; }
-        public String getMqttUrl() { return mqttUrl; }
-        public String getPlatformBaseUrl() { return platformBaseUrl; }
-        public String getAlarmRobotId() { return alarmRobotId; }
+        public String getDesc() {
+            return desc;
+        }
+
+        public String getElevatorHost() {
+            return elevatorHost;
+        }
+
+        public int[] getFloors() {
+            return floors;
+        }
+
+        public String getMqttUrl() {
+            return mqttUrl;
+        }
+
+        public String getPlatformBaseUrl() {
+            return platformBaseUrl;
+        }
+
+        public String getAlarmRobotId() {
+            return alarmRobotId;
+        }
+
+        public boolean isNeedOccupyConfirm() {
+            return needOccupyConfirm;
+        }
     }
 
     //电梯配置 (Netty TCP 服务端,电梯侧 DTU/5G CPE 连接到此端口,故无需电梯IP)

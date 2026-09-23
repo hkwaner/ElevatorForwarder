@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>电梯机器人操控台</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#0f1520;color:#e6edf3;min-height:100vh;padding:20px}
+  .wrap{max-width:760px;margin:0 auto}
+  h1{font-size:18px;font-weight:600;margin-bottom:4px;letter-spacing:.5px}
+  .sub{color:#8b98a9;font-size:12px;margin-bottom:16px;line-height:1.6}
+  .card{background:#1a2332;border:1px solid #2a3547;border-radius:10px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:13px;color:#8b98a9;margin-bottom:12px;font-weight:500}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  label{font-size:12px;color:#8b98a9}
+  input,select{background:#0f1520;border:1px solid #2a3547;border-radius:6px;color:#e6edf3;padding:7px 10px;font-size:13px;font-family:inherit}
+  input:focus,select:focus{outline:none;border-color:#3b82f6}
+  button{background:#243e63;border:1px solid #3b82f6;color:#fff;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer;transition:background .15s}
+  button:hover{background:#1d4ed8}
+  button.conn{background:#1f6feb;border-color:#1f6feb;font-weight:600}
+  button.conn:disabled{opacity:.5;cursor:wait}
+  button.danger{background:#7f1d1d;border-color:#ef4444}
+  button.danger:hover{background:#991b1b}
+  button.occup{background:#14532d;border-color:#16a34a}
+  button.occup:hover{background:#15803d}
+  button.release{background:#7f1d1d;border-color:#ef4444}
+  button.local{background:#713f12;border-color:#f59e0b}
+  button.remote{background:#0c4a6e;border-color:#22d3ee}
+  button.floor{background:#263042;border-color:#3c4a61;min-width:52px;font-size:16px}
+  button.floor:hover{background:#33415c}
+  button.floor:disabled{opacity:.4;cursor:not-allowed}
+  #status{display:inline-block;padding:2px 9px;border-radius:10px;font-size:12px;background:#21262d;color:#8b98a9}
+  #status.on{background:#16341f;color:#3fb950}
+  #status.err{background:#3a1414;color:#f85149}
+  #status.busy{background:#3a2a12;color:#fbbf24}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+  .cell{background:#0f1520;border:1px solid #2a3547;border-radius:8px;padding:10px;text-align:center}
+  .cell .k{font-size:11px;color:#8b98a9}
+  .cell .v{font-size:15px;margin-top:4px;font-weight:500}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;vertical-align:middle}
+  .badge.green{background:#14532d;color:#4ade80}
+  .badge.amber{background:#713f12;color:#fbbf24}
+  .log{background:#0f1520;border:1px solid #2a3547;border-radius:8px;max-height:220px;overflow:auto;padding:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7}
+  .log .ok{color:#4ade80}.log .fail{color:#f87171}.log .info{color:#8b98a9}.log .t{color:#5b6573;margin-right:8px}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#334155;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}
+  .toast.show{opacity:1}
+  .tiny{font-size:12px;color:#8b98a9}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>电梯机器人操控台</h1>
+  <div class="sub">浏览器直连 MQTT-over-WebSocket,控制电梯转发器。<br>命令:独占 / 取消独占 / 选层 / 就地远程。双击本文件即可用,零依赖。默认连平台端点 <b>ws://192.168.10.94:8083/mqtt</b>。</div>
+
+  <div class="card">
+    <h2>MQTT 连接 <span class="tiny">(broker 需开放 MQTT-over-WebSocket,如 8083+/mqtt,并带 mqtt 子协议)</span></h2>
+    <div class="row">
+      <input id="host" value="192.168.10.94" style="flex:.9"/>
+      <input id="port" value="8083" style="flex:.4"/>
+      <input id="path" value="/mqtt" style="flex:.5"/>
+      <button class="conn" id="btnConn">连接</button>
+      <button class="danger" id="btnDis" disabled>断开</button>
+      <span id="status">未连接</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>身份</h2>
+    <div class="row">
+      <label>ID</label>
+      <input id="robotId" placeholder="例如 U_000001"/>
+      <label>用户名</label>
+      <input id="userName" style="flex:.4" placeholder="操作员名称"/>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>电梯状态</h2>
+    <div class="grid">
+      <div class="cell"><div class="k">楼层</div><div class="v" id="s-floor">-</div></div>
+      <div class="cell"><div class="k">状态</div><div class="v" id="s-status">-</div></div>
+      <div class="cell"><div class="k">运动</div><div class="v" id="s-moving">-</div></div>
+      <div class="cell"><div class="k">方向</div><div class="v" id="s-dir">-</div></div>
+      <div class="cell"><div class="k">占用者</div><div class="v" id="s-occ">-</div></div>
+      <div class="cell"><div class="k">工作模式</div><div class="v" id="s-mode">-</div></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label>可用楼层</label>
+      <input id="floors" value="1,2,3,4" style="flex:.6"/>
+      <button id="applyFloors">应用</button>
+    </div>
+    <div class="row" id="floorBtns" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h2>操作</h2>
+    <div class="row">
+      <button class="occup" id="btnOccupy">独占电梯</button>
+      <button class="release" id="btnRelease">取消独占</button>
+      <button class="local" id="btnLocal">切到就地</button>
+      <button class="remote" id="btnRemote">切到远程</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>结果日志</h2>
+    <div class="log" id="log"><span class="info">-- 连接后自动订阅 topic-insbot --</span></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+var $ = id => document.getElementById(id);
+var TOPIC = 'topic-insbot', TARGET = 'elevator_proxy', BCAST_SRC = 'elevator_proxy';
+var ws = null, pingTimer = null, connected = false;
+var floorsEl = [1,2,3,4];
+
+// ================= 工具 =================
+function toast(t){var e=$('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800);}
+function setStatus(txt,cls){var s=$('status');s.textContent=txt;s.className=cls||'';}
+function logLine(cls,t){var d=document.createElement('div');d.innerHTML='<span class="t">'+new Date().toLocaleTimeString()+'</span>'+t;d.className=cls;var l=$('log');l.appendChild(d);l.scrollTop=l.scrollHeight;}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function ts(){return Date.now();}
+
+// ================= MQTT 3.1.1 over WebSocket 编解码 =================
+function remLen(n){var o=[];do{var d=n%128;n=(n-d)/128;if(n>0)d|=128;o.push(d)}while(n>0);return o;}
+function encStr(s){var b=new TextEncoder().encode(String(s));var o=new Uint8Array(2+b.length);o[0]=(b.length>>8)&255;o[1]=b.length&255;o.set(b,2);return o;}
+function pkt(h,body){return new Uint8Array([h].concat(remLen(body.length),Array.from(body))).buffer;}
+function conPacket(cid){var body=Array.from(encStr('MQTT')).concat([0x04,0x02,0x00,0x3c],Array.from(encStr(cid)));return pkt(0x10,body);}
+function subPacket(topic){var body=Array.from([0x00,0x01]).concat(Array.from(encStr(topic)),[0x00]);return pkt(0x82,body);}
+function pubPacket(topic,payload){var p=new TextEncoder().encode(String(payload));var body=Array.from(encStr(topic)).concat(Array.from(p));return pkt(0x30,body);}
+function parseRemLen(u,i){var m=1,len=0;for(;;){len+=(u[i]&127)*m;if(!(u[i]&128))break;i++;m*=128;if(m>1<<21)break;}return{len:len,pos:i+1};}
+
+// ================= 广播 / RESULT 处理 =================
+function applyBroadcast(v){
+  $('s-floor').textContent = v.floor==null?'-':v.floor;
+  $('s-status').textContent = v.status||'-';
+  $('s-moving').textContent = v.isMoving?'运动中':'静止';
+  $('s-dir').textContent = v.isMovingUp?'上行':(v.isMovingDown?'下行':'-');
+  $('s-occ').textContent = v.occupiedUserName||v.occupiedUser||'无人占用';
+  var m=$('s-mode'); m.innerHTML='';
+  if(v.workMode==='LOCAL'){ m.appendChild(document.createTextNode('就地')); m.insertAdjacentHTML('beforeend',' <span class="badge amber">面板可控</span>'); }
+  else { m.appendChild(document.createTextNode('远程')); m.insertAdjacentHTML('beforeend',' <span class="badge green">程序独占</span>'); }
+  // 就地模式禁掉选层
+  document.querySelectorAll('.floor').forEach(b=>{ b.disabled = v.workMode==='LOCAL'; });
+}
+function handleMsg(payload){
+  var m; try{ m=JSON.parse(payload); }catch(e){ return; }
+  if(m.type==='ELEVATOR_BROADCAST_INFO' && m.source===BCAST_SRC){
+    var v; try{ v=JSON.parse(m.value||'{}'); }catch(e){ v={}; }
+    applyBroadcast(v);
+  } else if(m.type==='RESULT'){
+    var ok = m.action==='RESULT_SUCCESS';
+    logLine(ok?'ok':'fail', '<b>['+esc(m.originalAction||'')+']</b> '+(ok?'成功':'失败')+' '+esc(m.value||''));
+  }
+}
+
+// ================= 连接 =================
+function genCid(){ return 'web_' + Math.random().toString(36).slice(2,10); }
+function connect(){
+  var host=$('host').value.trim(), port=$('port').value.trim(), path=$('path').value.trim();
+  var cid=genCid();
+  var url='ws://'+host+':'+port+(path&&path[0]!=='/'?'/'+path:path);
+  setStatus('连接中…','busy'); $('btnConn').disabled=true;
+  try{
+    ws = new WebSocket(url,'mqtt');   // mosquitto 必须带 mqtt 子协议
+    ws.binaryType='arraybuffer';
+    ws.onopen=()=>{ ws.send(conPacket(cid)); };
+    ws.onmessage=ev=>{
+      (ev.data instanceof Blob?ev.data.arrayBuffer():Promise.resolve(ev.data)).then(buf=>{
+        var u=new Uint8Array(buf), type=u[0]&0xF0;
+        if(type===0x20){ // CONNACK
+          var rc=u[3];
+          if(rc===0){ connected=true; setStatus('已连接','on'); logLine('info','已连接 '+url+' (CONNACK rc=0)'); $('btnDis').disabled=false;
+            ws.send(subPacket(TOPIC));
+            pingTimer=setInterval(()=>{ if(ws&&ws.readyState===1) ws.send(new Uint8Array([0xC0,0x00])); },30000);
+          } else { setStatus('被拒 rc='+rc,'err'); logLine('fail','CONNACK 拒绝 rc='+rc); ws.close(); }
+          return;
+        }
+        if(type===0x90){ logLine('info','订阅确认 topic='+TOPIC); return; }
+        if(type===0x30){ // PUBLISH
+          var rl=parseRemLen(u,1); var pos=rl.pos;
+          var tl=(u[pos]<<8)|u[pos+1]; pos+=2;
+          var topic=new TextDecoder().decode(u.subarray(pos,pos+tl)); pos+=tl;
+          var qos=(u[0]>>1)&3; if(qos>0)pos+=2;
+          if(qos>0) ws.send(new Uint8Array([0x40,0x00,0x01])); // PUBACK
+          handleMsg(new TextDecoder().decode(u.subarray(pos)));
+        }
+      });
+    };
+    ws.onerror=()=>{ setStatus('WebSocket 错误','err'); logLine('fail','连接失败: '+url); };
+    ws.onclose=e=>{ cleanup(); var wasConn=connected; connected=false; $('btnDis').disabled=true; $('btnConn').disabled=false; if(!wasConn) setStatus('连接失败','err'); else setStatus('已断开',''); logLine('info','连接关闭 code='+e.code); };
+  }catch(e){ setStatus('创建失败','err'); $('btnConn').disabled=false; logLine('fail','异常: '+e.message); }
+}
+function cleanup(){ if(pingTimer){clearInterval(pingTimer);pingTimer=null;} }
+
+// ================= 指令发送 =================
+function sendCmd(action,value){
+  if(!connected){ toast('未连接 MQTT'); return; }
+  var cmd={ id: ts()%2147483647, timeStamp: ts(), source: (value&&value.userId)||idOf()||'web', target: TARGET,
+            type:'ELEVATOR_CONTROL', action: action, value: JSON.stringify(value) };
+  ws.send(pubPacket(TOPIC, JSON.stringify(cmd)));
+  logLine('info','SENT ['+action+'] '+esc(JSON.stringify(value)));
+}
+function idOf(){ return $('robotId').value.trim(); }
+function nameOf(){ return $('userName').value.trim(); }
+
+$('btnOccupy').onclick=()=>{ var id=idOf(); if(!id){toast('请先填写ID');return;} sendCmd('OCCUPY_ELEVATOR',{userId:id,userName:nameOf()||id}); };
+$('btnRelease').onclick=()=>{ var id=idOf(); if(!id){toast('请先填写ID');return;} sendCmd('RELEASE_ELEVATOR',{userId:id,userName:nameOf()||id}); };
+$('btnLocal').onclick=()=>{ sendCmd('SWITCH_WORK_MODE',{mode:'LOCAL'}); };
+$('btnRemote').onclick=()=>{ sendCmd('SWITCH_WORK_MODE',{mode:'REMOTE'}); };
+$('btnConn').onclick=connect;
+$('btnDis').onclick=()=>{ if(ws){ws.close();ws=null;} };
+
+function renderFloors(){ var box=$('floorBtns'); box.innerHTML=''; floorsEl.forEach(f=>{ var b=document.createElement('button'); b.className='floor'; b.textContent=f; b.onclick=()=>{ var id=idOf(); if(!id){toast('请先填写ID');return;} sendCmd('SELECT_FLOORS',{userId:id,targetFloor:f}); }; box.appendChild(b); }); }
+$('applyFloors').onclick=()=>{ floorsEl=($('floors').value.split(',').map(s=>parseInt(s.trim())).filter(n=>Number.isInteger(n))); renderFloors(); };
+renderFloors();
+</script>
+</body>
+</html>
